@@ -678,3 +678,12 @@ dialog::backdrop { background: rgba(16, 48, 59, 0.55); }
   .filter-row label:last-child { grid-column: 1 / -1; }
 }
 
+
+/* ---------- Home required before using the app ---------- */
+
+body.needs-home #panel,
+body.needs-home .map-tools,
+body.needs-home #btnNewReport {
+  opacity: 0.4;
+  pointer-events: none;
+}

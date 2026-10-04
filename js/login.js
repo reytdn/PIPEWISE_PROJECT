@@ -11,8 +11,18 @@
 
   const ENDPOINTS = {
     user: 'forms/login_user.php',
+    register: 'forms/add_user.php',   // sign up is saved by add_user.php
     admin: 'forms/login_admin.php'
   };
+
+  // The 61 barangays of Bacolod City (same list as forms/add_user.php)
+  const BARANGAYS = [
+    'Alangilan', 'Alijis', 'Banago',
+    ...Array.from({ length: 41 }, (_, i) => `Barangay ${i + 1}`),
+    'Bata', 'Cabug', 'Estefania', 'Felisa', 'Granada', 'Handumanan', 'Mandalagan',
+    'Mansilingan', 'Montevista', 'Pahanocoy', 'Punta Taytay', 'Singcang-Airport',
+    'Sum-ag', 'Taculing', 'Tangub', 'Villamonte', 'Vista Alegre'
+  ];
   const SESSION_KEY = 'pipesense.user';   // read by map.js
   const HOME_USER = 'index.html';             // resident dashboard
   const HOME_ADMIN = 'admin_dashboard.html';  // administrator dashboard
@@ -79,6 +89,7 @@
 
   function startSession(user) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    sessionStorage.removeItem('pipesense.welcomed');   // map.js shows the welcome popup once per login
     return Swal.fire({
       icon: 'success',
       title: user.role === 'admin' ? 'Welcome, administrator' : `Welcome, ${user.name.split(' ')[0]}`,
@@ -87,6 +98,18 @@
       timerProgressBar: true,
       showConfirmButton: false
     }).then(() => location.replace(homeFor(user)));
+  }
+
+  /* ---------- Address drop-down ---------- */
+
+  const addressSelect = $('#signupAddress');
+  if (addressSelect) {
+    BARANGAYS.forEach((b) => {
+      const o = document.createElement('option');
+      o.value = b;
+      o.textContent = b;
+      addressSelect.appendChild(o);
+    });
   }
 
   /* ---------- Screens ---------- */
@@ -120,9 +143,10 @@
   function validateSignup(v) {
     const problems = [];
     if (!v.username || !v.password || !v.name || !v.address || !v.email) {
-      problems.push('Every field is required.');
+      problems.push('Every field is required, including your barangay.');
       return problems;
     }
+    if (!BARANGAYS.includes(v.address)) problems.push('Select your barangay from the list.');
     if (!USER_RE.test(v.username)) problems.push('Username must be 3 to 30 letters, numbers, dots, dashes or underscores.');
     if (v.password.length < 8) problems.push('Password must be at least 8 characters.');
     if (!EMAIL_RE.test(v.email)) problems.push('Enter a valid email address.');
@@ -169,13 +193,14 @@
 
     setBusy(f, true, 'Creating account...');
     try {
-      const res = await post(ENDPOINTS.user, { action: 'register', ...v });
+      const res = await post(ENDPOINTS.register, v);
       if (res.status === 'success') {
         f.reset();
         await Swal.fire({
           icon: 'success',
           title: 'Account created',
-          text: res.message,
+          html: `<p style="margin:0 0 6px">${esc(res.message)}</p>
+                 <p style="margin:0">Username: <b>${esc(v.username)}</b><br>Barangay: <b>${esc(v.address)}, Bacolod City</b></p>`,
           confirmButtonText: 'Go to log in'
         });
         show('login');
@@ -183,7 +208,9 @@
         forms.login.elements.password.focus();
         return;
       }
-      await notify('error', 'Could not create your account', res.errors && res.errors.length ? res.errors : res.message);
+      const msgs = res.errors && res.errors.length ? [...res.errors] : [res.message];
+      if (res.detail) msgs.push('Details: ' + res.detail);
+      await notify('error', 'Could not create your account', msgs);
     } catch (err) {
       await serverDown(err);
     } finally {

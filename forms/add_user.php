@@ -216,6 +216,29 @@
         // MAKE SURE THE user_login TABLE CAN SAVE ACCOUNTS
         // ----------------------------------------------
 
+        // 0) Create the table / missing columns if they are not there yet
+        $conn->query(
+            "CREATE TABLE IF NOT EXISTS user_login (
+                id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(30) NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                name VARCHAR(100) NOT NULL DEFAULT '',
+                address VARCHAR(255) NOT NULL DEFAULT '',
+                email VARCHAR(100) NOT NULL DEFAULT ''
+            ) CHARACTER SET utf8mb4"
+        );
+        $needed = [
+            'name'    => "VARCHAR(100) NOT NULL DEFAULT ''",
+            'address' => "VARCHAR(255) NOT NULL DEFAULT ''",
+            'email'   => "VARCHAR(100) NOT NULL DEFAULT ''"
+        ];
+        foreach ($needed as $col => $definition) {
+            // $col and $definition are fixed values written above, never user input
+            if (columnInfo($conn, 'user_login', $col, 'COLUMN_NAME') === null) {
+                $conn->query("ALTER TABLE user_login ADD COLUMN $col $definition");
+            }
+        }
+
         // 1) A password_hash() result is about 60 characters. If the
         //    password column is shorter, MySQL cuts the hash off and
         //    nobody could log in afterwards.

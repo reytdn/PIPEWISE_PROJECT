@@ -9,10 +9,19 @@
   /* ---------------- Config ---------------- */
 
   const CONFIG = {
-    storageKey: 'pipesense.v2',
+    storageKey: 'pipesense.v3',      // new key = starts with no reports
     sessionKey: 'pipesense.user',    // JSON of the logged-in account, set by login.js
-    center: [9.6472, 123.8547], // change to your study area
+    center: [10.6713, 122.9511], // Bacolod City
     zoom: 13,
+    geofenceRadius: 1000,        // meters around the resident's home
+    homeKey: 'pipesense.home.',  // + user id: the home each resident chose
+    // Home marker picture. anchor = the point of the image that sits on the home spot:
+    // [22, 44] = bottom middle (pin shaped image). Use [22, 22] for a round image.
+    homeIcon: { url: 'assets/images/HOMEMARKER.png', size: [44, 44], anchor: [22, 44] },
+    geoKey: 'pipesense.geo.v3',  // cached GeoSearch results (one lookup per barangay)
+    welcomeKey: 'pipesense.welcomed', // user id that already saw the welcome popup (cleared at login/logout)
+    // GeoSearch is limited to Bacolod City: west,north,east,south
+    cityViewbox: '122.84,10.80,123.04,10.55',
     recurringThreshold: 3        // reports in one barangay before it is flagged
   };
 
@@ -30,18 +39,43 @@
     resolved:  'Resolved'
   };
 
-  // Approximate barangay centers (sample data, replace with your own)
+  // All 61 barangays of Bacolod City. Coordinates are APPROXIMATE centers
+  // (simulation only). Barangays 1 to 41 are the downtown core, so they are
+  // spread on a small grid around the city center.
+  const NAMED_AREAS = [
+    { name: 'Alangilan',        lat: 10.6650, lng: 122.9610 },
+    { name: 'Alijis',           lat: 10.6420, lng: 122.9600 },
+    { name: 'Banago',           lat: 10.6920, lng: 122.9390 },
+    { name: 'Bata',             lat: 10.6860, lng: 122.9490 },
+    { name: 'Cabug',            lat: 10.7170, lng: 122.9700 },
+    { name: 'Estefania',        lat: 10.6610, lng: 122.9560 },
+    { name: 'Felisa',           lat: 10.6870, lng: 122.9610 },
+    { name: 'Granada',          lat: 10.6780, lng: 122.9660 },
+    { name: 'Handumanan',       lat: 10.6330, lng: 122.9540 },
+    { name: 'Mandalagan',       lat: 10.6960, lng: 122.9570 },
+    { name: 'Mansilingan',      lat: 10.6330, lng: 122.9380 },
+    { name: 'Montevista',       lat: 10.7350, lng: 122.9680 },
+    { name: 'Pahanocoy',        lat: 10.6500, lng: 122.9220 },
+    { name: 'Punta Taytay',     lat: 10.6960, lng: 122.9270 },
+    { name: 'Singcang-Airport', lat: 10.6830, lng: 122.9600 },
+    { name: 'Sum-ag',           lat: 10.6260, lng: 122.9210 },
+    { name: 'Taculing',         lat: 10.6560, lng: 122.9530 },
+    { name: 'Tangub',           lat: 10.6540, lng: 122.9340 },
+    { name: 'Villamonte',       lat: 10.6810, lng: 122.9560 },
+    { name: 'Vista Alegre',     lat: 10.6760, lng: 122.9370 }
+  ];
+
+  const NUMBERED_AREAS = Array.from({ length: 41 }, (_, i) => ({
+    name: `Barangay ${i + 1}`,
+    lat: +(10.6713 + (Math.floor(i / 7) - 3) * 0.0025).toFixed(5),
+    lng: +(122.9511 + ((i % 7) - 3) * 0.0025).toFixed(5)
+  }));
+
+  // Same order as the sign-up list
   const AREAS = [
-    { name: 'Poblacion I', lat: 9.6470, lng: 123.8540 },
-    { name: 'Cogon',       lat: 9.6555, lng: 123.8520 },
-    { name: 'Dampas',      lat: 9.6610, lng: 123.8630 },
-    { name: 'Booy',        lat: 9.6425, lng: 123.8470 },
-    { name: 'Mansasa',     lat: 9.6690, lng: 123.8440 },
-    { name: 'Taloto',      lat: 9.6640, lng: 123.8570 },
-    { name: 'Tiptip',      lat: 9.6500, lng: 123.8410 },
-    { name: 'Bool',        lat: 9.6420, lng: 123.8640 },
-    { name: 'Ubujan',      lat: 9.6310, lng: 123.8720 },
-    { name: 'San Isidro',  lat: 9.6570, lng: 123.8760 }
+    ...NAMED_AREAS.slice(0, 3),
+    ...NUMBERED_AREAS,
+    ...NAMED_AREAS.slice(3)
   ];
 
   /* ---------------- Helpers ---------------- */
@@ -120,102 +154,9 @@
 
   /* ---------------- Data store ---------------- */
 
+  // The system starts with no reports. Residents and the administrator add them.
   function seed() {
-    const now = Date.now(), H = 3600e3, D = 24 * H;
-    const area = (n) => AREAS.find((a) => a.name === n);
-    const at = (n, dLat = 0, dLng = 0) => ({
-      area: n, lat: +(area(n).lat + dLat).toFixed(5), lng: +(area(n).lng + dLng).toFixed(5)
-    });
-    const official = (o) => ({
-      source: 'official', verified: true, authorId: 'seed-admin', author: 'PipeSense Admin', ...o
-    });
-    const community = (o) => ({
-      source: 'community', verified: false, authorId: null, ...o
-    });
-
-    return {
-      seq: 100,
-      session: null,
-      reports: [
-        official({
-          id: 'r1', type: 'maintenance', status: 'ongoing',
-          title: 'Main valve replacement on Carlos P. Garcia Ave.',
-          desc: 'Supply is cut while crews replace a main valve. Expect low or no water in nearby streets until the work is done.',
-          ...at('Cogon', 0.0004, -0.0006),
-          createdAt: now - 5 * H, startsAt: now - 3 * H, endsAt: now + 5 * H
-        }),
-        official({
-          id: 'r2', type: 'interruption', status: 'scheduled',
-          title: 'Scheduled shutdown for pipe tie-in',
-          desc: 'Water service will be interrupted for the tie-in of a new pipeline. Store enough water beforehand.',
-          ...at('Dampas', 0.0005, 0.0004),
-          createdAt: now - 20 * H, startsAt: now + 1 * D, endsAt: now + 1 * D + 8 * H
-        }),
-        community({
-          id: 'r3', type: 'interruption', status: 'ongoing',
-          title: 'No water since early morning',
-          desc: 'Taps have been dry since around 5 AM. Neighbors on the same street have the same problem.',
-          ...at('Booy', 0.0006, 0.0008),
-          author: 'Maria Santos', authorId: 'seed-maria', createdAt: now - 4 * H
-        }),
-        community({
-          id: 'r4', type: 'quality', status: 'reported', verified: true,
-          title: 'Brown water coming out of faucets',
-          desc: 'Water is discolored for the last few hours. Clears after running for several minutes.',
-          ...at('Cogon', -0.0009, 0.0011),
-          author: 'Jun Ramos', createdAt: now - 9 * H
-        }),
-        community({
-          id: 'r5', type: 'pressure', status: 'reported',
-          title: 'Very weak pressure in the evening',
-          desc: 'Second-floor taps barely run between 6 and 9 PM. This happens almost every day.',
-          ...at('Mansasa', 0.0003, -0.0005),
-          author: 'Lea Cabahug', createdAt: now - 1.500 * D
-        }),
-        community({
-          id: 'r6', type: 'pressure', status: 'resolved', verified: true,
-          title: 'Low pressure along the main road',
-          desc: 'Pressure returned to normal after the provider flushed the line.',
-          ...at('Cogon', 0.0012, 0.0003),
-          author: 'Paolo Dumaluan', createdAt: now - 4 * D
-        }),
-        official({
-          id: 'r7', type: 'maintenance', status: 'resolved',
-          title: 'Pipe flushing completed',
-          desc: 'Routine flushing of distribution lines has finished. Water may look cloudy for a short while.',
-          ...at('Poblacion I', 0.0003, 0.0005),
-          createdAt: now - 3 * D, startsAt: now - 3 * D - 4 * H, endsAt: now - 3 * D
-        }),
-        community({
-          id: 'r8', type: 'interruption', status: 'resolved', verified: true,
-          title: 'Water cut without notice',
-          desc: 'Supply was cut for about three hours with no advisory. Back to normal now.',
-          ...at('Booy', -0.0007, -0.0004),
-          author: 'Ana Pinote', createdAt: now - 6 * D
-        }),
-        community({
-          id: 'r9', type: 'quality', status: 'reported',
-          title: 'Chlorine smell stronger than usual',
-          desc: 'Noticeable chlorine smell in drinking water since yesterday.',
-          ...at('Taloto', 0.0004, 0.0003),
-          author: 'Ben Uy', createdAt: now - 1 * D
-        }),
-        community({
-          id: 'r10', type: 'interruption', status: 'ongoing', verified: true,
-          title: 'Burst pipe flooding the roadside',
-          desc: 'A pipe is leaking heavily near the barangay hall. Pressure on the street has dropped.',
-          ...at('Cogon', -0.0004, -0.0012),
-          author: 'Rosa Lim', createdAt: now - 2 * H
-        }),
-        community({
-          id: 'r11', type: 'pressure', status: 'resolved', verified: true,
-          title: 'Weak flow near the public market',
-          desc: 'Back to normal after repairs.',
-          ...at('Dampas', -0.0008, -0.0006),
-          author: 'Carlo Bongo', createdAt: now - 8 * D
-        })
-      ]
-    };
+    return { seq: 100, session: null, reports: [] };
   }
 
   function loadDB() {
@@ -397,10 +338,14 @@
     $('#clearFilters').hidden = !filtersActive();
 
     if (!items.length) {
-      list.innerHTML = `
+      list.innerHTML = db.reports.length ? `
         <li class="empty">
           <h3>No reports match</h3>
           <p>Try a different search or clear the filters to see every report.</p>
+        </li>` : `
+        <li class="empty">
+          <h3>No reports yet</h3>
+          <p>Reports and announcements will show up here once they are posted.</p>
         </li>`;
       return;
     }
@@ -603,6 +548,7 @@
 
   function refresh() {
     renderAuth();
+    renderHome();
     renderList();
     renderMarkers();
     renderHotspots();
@@ -654,6 +600,11 @@
            <button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="${esc(r.id)}">Delete</button>`)).join('')
       : '<p class="empty-inline">You have not reported anything yet. Pin an issue on the map to start.</p>';
 
+    const near = openReportsNearHome();
+    const nearNote = near
+      ? `<p class="lead">${near.length} open report${near.length === 1 ? '' : 's'} within ${CONFIG.geofenceRadius / 1000} km of your home.</p>`
+      : '';
+
     const noticeRows = notices.length
       ? notices.map((r) => reportRow(r)).join('')
       : '<p class="empty-inline">No active announcements from the water provider.</p>';
@@ -662,6 +613,7 @@
       <div class="insights">
         <h2>Hello, ${esc(u.name.split(' ')[0])}</h2>
         <p class="lead">Signed in as ${esc(u.email)}. Track your reports and check official announcements.</p>
+        ${nearNote}
 
         ${statStrip([[mine.length, 'My reports'], [open, 'Still open'], [verified, 'Verified'], [resolved, 'Resolved']])}
 
@@ -677,6 +629,7 @@
 
         <div class="insight-actions">
           <button type="button" class="btn btn-primary" data-action="new">Report an issue</button>
+          <button type="button" class="btn" data-action="change-home">Change my home</button>
           <button type="button" class="btn" data-action="insights">See area statistics</button>
         </div>
       </div>`;
@@ -725,21 +678,21 @@
           <button type="button" class="btn btn-primary" data-action="announce">Post announcement</button>
           <button type="button" class="btn" data-action="insights">See area statistics</button>
           <button type="button" class="btn" data-action="export">Download records (CSV)</button>
-          <button type="button" class="btn btn-danger" data-action="reset">Reset demo data</button>
+          <button type="button" class="btn btn-danger" data-action="reset">Clear all reports</button>
         </div>
       </div>`;
   }
 
   async function resetDemo() {
     const ok = await confirmAction({
-      title: 'Reset demo data?',
-      text: 'All reports will be replaced with the original sample reports.',
-      confirmText: 'Reset'
+      title: 'Clear all reports?',
+      text: 'Every report will be removed. This cannot be undone.',
+      confirmText: 'Clear all'
     });
     if (!ok) return;
     db = seed();
     saveDB();
-    toast('Demo data restored.');
+    toast('All reports cleared.');
     showView('dashboard');
     refresh();
   }
@@ -771,6 +724,7 @@
       toast('Marked as resolved.');
       return refresh();
     }
+    if (a === 'change-home' && isResident()) return beginHomeSetup();
     if (a === 'new') return beginNewReport();
     if (a === 'announce' && isAdmin()) return beginNewReport({ official: true });
     if (a === 'insights') return showView('insights');
@@ -793,7 +747,10 @@
   }
 
   function logout() {
-    try { sessionStorage.removeItem(CONFIG.sessionKey); } catch (e) { /* ignore */ }
+    try {
+      sessionStorage.removeItem(CONFIG.sessionKey);
+      sessionStorage.removeItem(CONFIG.welcomeKey);
+    } catch (e) { /* ignore */ }
     location.replace('login.html');
   }
 
@@ -1049,6 +1006,363 @@
     if (btn.dataset.action === 'export') exportCSV();
   }
 
+  /* ---------------- Resident address + geofence ---------------- */
+
+  const homeLayer = L.layerGroup().addTo(map);
+
+  let homeGeo = null;   // { name, lat, lng } found by GeoSearch
+
+  // Barangay from the address saved at sign-up ("Alijis, Bacolod City")
+  function baseHomeArea() {
+    const u = currentUser();
+    if (!u || u.role === 'admin' || !u.address) return null;
+    const name = String(u.address).split(',')[0].trim().toLowerCase();
+    return AREAS.find((a) => a.name.toLowerCase() === name) || null;
+  }
+
+  // The home the resident chose (null until they set it)
+  let myHome = null;
+
+  function loadHome() {
+    try {
+      const h = JSON.parse(localStorage.getItem(CONFIG.homeKey + currentUser().id));
+      return h && isFinite(h.lat) && isFinite(h.lng) ? { lat: +h.lat, lng: +h.lng } : null;
+    } catch (e) { return null; }
+  }
+  function saveHome(lat, lng) {
+    const h = { lat: +lat.toFixed(6), lng: +lng.toFixed(6) };
+    try { localStorage.setItem(CONFIG.homeKey + currentUser().id, JSON.stringify(h)); } catch (e) { /* ignore */ }
+    return h;
+  }
+
+  function homeArea() {
+    const u = currentUser();
+    if (!u || u.role === 'admin' || !myHome) return null;
+    const base = baseHomeArea();
+    return { name: base ? base.name : 'your area', lat: myHome.lat, lng: myHome.lng };
+  }
+
+  function readGeoCache() {
+    try { return JSON.parse(localStorage.getItem(CONFIG.geoKey)) || {}; } catch (e) { return {}; }
+  }
+  function writeGeoCache(c) {
+    try { localStorage.setItem(CONFIG.geoKey, JSON.stringify(c)); } catch (e) { /* ignore */ }
+  }
+  const inBacolod = (lat, lng) => lat > 10.55 && lat < 10.80 && lng > 122.84 && lng < 123.04;
+
+  // ---- geometry helpers: find the middle of a barangay outline ----
+  function ringCentroid(ring) {            // ring = [[lng, lat], ...]
+    let area = 0, cx = 0, cy = 0;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [x0, y0] = ring[j], [x1, y1] = ring[i];
+      const f = x0 * y1 - x1 * y0;
+      area += f; cx += (x0 + x1) * f; cy += (y0 + y1) * f;
+    }
+    if (!area) return null;
+    area *= 0.5;
+    return { lng: cx / (6 * area), lat: cy / (6 * area), area: Math.abs(area) };
+  }
+
+  function pointInRing(lng, lat, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i], [xj, yj] = ring[j];
+      if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  // Centroid of the biggest polygon, only if it really lies inside the outline
+  function outlineCenter(geo) {
+    if (!geo) return null;
+    const polys = geo.type === 'Polygon' ? [geo.coordinates]
+      : geo.type === 'MultiPolygon' ? geo.coordinates : [];
+    let best = null;
+    polys.forEach((p) => {
+      const c = p[0] && ringCentroid(p[0]);
+      if (c && (!best || c.area > best.area)) best = { ...c, ring: p[0] };
+    });
+    return best && pointInRing(best.lng, best.lat, best.ring) ? best : null;
+  }
+
+  // Looks the barangay name up with Leaflet-GeoSearch (OpenStreetMap) and puts the
+  // home marker in the middle of the area it finds. Falls back to the approximate
+  // position from AREAS if nothing is found.
+  async function geocodeHome() {
+    const a = baseHomeArea();
+    if (!a) return;
+
+    const cache = readGeoCache();
+    if (cache[a.name]) { homeGeo = { name: a.name, ...cache[a.name] }; return; }
+    if (!window.GeoSearch) { console.warn('GeoSearch did not load; using approximate position.'); return; }
+
+    const provider = new GeoSearch.OpenStreetMapProvider({
+      params: { countrycodes: 'ph', limit: 3, bounded: 1, viewbox: CONFIG.cityViewbox, polygon_geojson: 1 }
+    });
+    const num = /^Barangay (\d+)$/.exec(a.name);
+    const queries = [
+      `${a.name}, Bacolod City, Negros Occidental, Philippines`,
+      `${a.name}, Bacolod`,
+      ...(num ? [`Brgy ${num[1]}, Bacolod City`, `Brgy. ${num[1]} Bacolod`] : [])
+    ];
+
+    for (const query of queries) {
+      try {
+        const results = await provider.search({ query });
+        for (const r of results || []) {
+          let lat = r.y, lng = r.x, how = 'point';
+
+          const c = outlineCenter(r.raw && r.raw.geojson);
+          if (c) { lat = c.lat; lng = c.lng; how = 'outline'; }
+          else if (r.bounds) {
+            const [[s, w], [n, e]] = r.bounds;
+            if (Math.abs(n - s) < 0.06 && Math.abs(e - w) < 0.06) {
+              lat = (s + n) / 2; lng = (w + e) / 2; how = 'box';
+            }
+          }
+          if (!inBacolod(lat, lng)) continue;
+
+          homeGeo = { name: a.name, lat: +lat.toFixed(6), lng: +lng.toFixed(6) };
+          cache[a.name] = { lat: homeGeo.lat, lng: homeGeo.lng };
+          writeGeoCache(cache);
+          console.log(`GeoSearch: "${query}" -> ${r.label} (${how}) ${homeGeo.lat}, ${homeGeo.lng}`);
+          return;
+        }
+      } catch (e) {
+        console.warn('GeoSearch failed for', query, e);
+      }
+    }
+    console.warn(`GeoSearch found nothing for ${a.name}; using approximate position.`);
+  }
+
+  function openReportsNearHome() {
+    const a = homeArea();
+    if (!a) return null;
+    return db.reports.filter((r) =>
+      r.status !== 'resolved' &&
+      haversine(a.lat, a.lng, r.lat, r.lng) <= CONFIG.geofenceRadius);
+  }
+
+  function renderHome() {
+    homeLayer.clearLayers();
+    const a = homeArea();
+    if (!a) return;
+
+    L.circle([a.lat, a.lng], {
+      radius: CONFIG.geofenceRadius,
+      color: '#1b6f8f',
+      weight: 2,
+      dashArray: '6 6',
+      fillColor: '#5cc8d7',
+      fillOpacity: 0.16,
+      interactive: false
+    }).addTo(homeLayer);
+
+    L.marker([a.lat, a.lng], {
+      interactive: false,
+      keyboard: false,
+      icon: homeIcon()
+    }).addTo(homeLayer);
+  }
+
+  // Picture for the home marker (falls back to a round blue house if the image is missing)
+  let homeImgOk = null;
+  (() => {
+    const im = new Image();
+    im.onload = () => { homeImgOk = true; };
+    im.onerror = () => { homeImgOk = false; console.warn('Home marker image not found: ' + CONFIG.homeIcon.url); };
+    im.src = CONFIG.homeIcon.url;
+  })();
+
+  function homeIcon() {
+    if (homeImgOk === false) {
+      return L.divIcon({
+        className: 'pin-wrap',
+        html: '<div style="width:34px;height:34px;border-radius:50%;background:#1b6f8f;border:3px solid #fff;' +
+              'box-shadow:0 2px 6px rgba(16,48,59,.45);display:grid;place-items:center;color:#fff">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z" fill="currentColor"/></svg></div>',
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      });
+    }
+    return L.icon({
+      iconUrl: CONFIG.homeIcon.url,
+      iconSize: CONFIG.homeIcon.size,
+      iconAnchor: CONFIG.homeIcon.anchor
+    });
+  }
+
+  function focusHome() {
+    const a = homeArea();
+    if (!a) return;
+    // (L.circle().getBounds() needs the circle to be on the map, so use toBounds instead)
+    const box = L.latLng(a.lat, a.lng).toBounds(CONFIG.geofenceRadius * 2);
+    map.fitBounds(box, { padding: [30, 30] });
+  }
+
+  // Popup shown once, right after logging in
+  function welcome() {
+    const u = currentUser();
+    if (!u) return;
+    try {
+      if (sessionStorage.getItem(CONFIG.welcomeKey) === String(u.id)) return;   // already shown
+      sessionStorage.setItem(CONFIG.welcomeKey, String(u.id));
+    } catch (e) { /* ignore */ }
+
+    if (u.role === 'admin') {
+      const waiting = db.reports.filter((r) => r.source === 'community' && !r.verified).length;
+      return Swal.fire({
+        icon: 'success',
+        title: 'Welcome, administrator',
+        html: `<p style="margin:0">${waiting
+          ? `${waiting} report${waiting === 1 ? ' is' : 's are'} waiting for verification.`
+          : 'No reports are waiting for verification.'}</p>`,
+        confirmButtonText: 'Open dashboard'
+      });
+    }
+
+    const a = homeArea();
+    const near = openReportsNearHome();
+    const where = a
+      ? `<p style="margin:0 0 8px">Your home in <b>${esc(a.name)}</b> is marked on the map with a ${CONFIG.geofenceRadius / 1000} km geofence.</p>
+         <p style="margin:0">${near.length
+           ? `${near.length} open report${near.length === 1 ? '' : 's'} inside your geofence.`
+           : 'No open reports inside your geofence.'}</p>`
+      : '<p style="margin:0">We could not place your address on the map.</p>';
+
+    return Swal.fire({
+      icon: near && near.length ? 'warning' : 'success',
+      title: `Welcome, ${esc(u.name.split(' ')[0])}`,
+      html: where,
+      confirmButtonText: 'View map'
+    });
+  }
+
+  /* ---------------- Home setup (required before using the app) ---------------- */
+
+  let homeDraft = null;
+  let homeBanner = null;
+
+  function isResident() {
+    const u = currentUser();
+    return !!u && u.role !== 'admin';
+  }
+
+  // While locked the resident can only pick a home (or log out)
+  function lockApp(on) {
+    document.body.classList.toggle('needs-home', on);
+    $('#panel').inert = on;
+    $('.map-tools').inert = on;
+    $('#btnNewReport').disabled = on;
+  }
+
+  function showHomeBanner(force) {
+    if (!homeBanner) {
+      homeBanner = document.createElement('div');
+      homeBanner.className = 'placing-banner';
+      homeBanner.setAttribute('role', 'status');
+      $('.mapwrap').appendChild(homeBanner);
+      homeBanner.addEventListener('click', onHomeBannerClick);
+    }
+    homeBanner.innerHTML = `
+      <strong>${force ? 'Set your home to continue' : 'Choose your home'}</strong>
+      <span>Click the map where your home is.</span>
+      <button type="button" class="btn btn-small" data-home="locate">Use my location</button>
+      ${force ? '' : '<button type="button" class="btn btn-small btn-quiet" data-home="cancel">Cancel</button>'}`;
+    homeBanner.hidden = false;
+  }
+
+  function onHomeBannerClick(e) {
+    const b = e.target.closest('[data-home]');
+    if (!b) return;
+    if (b.dataset.home === 'cancel') return stopHomeSetup();
+    if (b.dataset.home === 'locate') {
+      if (!navigator.geolocation) return toast('This browser cannot share your location.', 'error');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          map.setView([pos.coords.latitude, pos.coords.longitude], 17);
+          chooseHome(pos.coords.latitude, pos.coords.longitude);
+        },
+        () => toast('Could not get your location. Click the map instead.', 'error'),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+  }
+
+  function beginHomeSetup({ force = false } = {}) {
+    if (state.placing) { stopPlacing(); clearDraftMarker(); }
+    state.settingHome = true;
+    state.forceHome = force;
+    $('#map').classList.add('is-placing');
+    map.closePopup();
+    showHomeBanner(force);
+
+    // Start the map near the resident's barangay to make the pick easier
+    const base = baseHomeArea();
+    if (base) map.setView([base.lat, base.lng], 15);
+    geocodeHome()
+      .then(() => {
+        if (homeGeo && state.settingHome && !homeDraft) map.setView([homeGeo.lat, homeGeo.lng], 16);
+      })
+      .catch(() => { /* the approximate view is fine */ });
+  }
+
+  function stopHomeSetup() {
+    state.settingHome = false;
+    $('#map').classList.remove('is-placing');
+    if (homeBanner) homeBanner.hidden = true;
+    if (homeDraft) { map.removeLayer(homeDraft); homeDraft = null; }
+  }
+
+  async function chooseHome(lat, lng) {
+    if (state.confirmingHome) return;
+
+    if (!inBacolod(lat, lng)) {
+      await Swal.fire({
+        icon: 'warning',
+        title: 'Outside Bacolod City',
+        text: 'Pick a spot inside Bacolod City.',
+        confirmButtonText: 'OK'
+      });
+      return;
+    }
+
+    state.confirmingHome = true;
+    if (homeDraft) map.removeLayer(homeDraft);
+    homeDraft = L.marker([lat, lng], { icon: homeIcon(), interactive: false, opacity: 0.85 }).addTo(map);
+
+    const res = await Swal.fire({
+      icon: 'question',
+      title: 'Set this as your home?',
+      html: `<p style="margin:0">${lat.toFixed(5)}, ${lng.toFixed(5)}</p>`,
+      showCancelButton: true,
+      confirmButtonText: 'Yes, this is my home',
+      cancelButtonText: 'Choose again',
+      allowOutsideClick: false,
+      reverseButtons: true
+    });
+    state.confirmingHome = false;
+
+    if (!res.isConfirmed) {
+      map.removeLayer(homeDraft);
+      homeDraft = null;
+      return;
+    }
+
+    const first = state.forceHome;
+    myHome = saveHome(lat, lng);
+    stopHomeSetup();
+    lockApp(false);
+    refresh();
+    renderLegend();
+    focusHome();
+    if (first) welcome(); else toast('Home updated.');
+  }
+
+  map.on('click', (e) => {
+    if (state.settingHome) chooseHome(e.latlng.lat, e.latlng.lng);
+  });
+
   /* ---------------- Legend ---------------- */
 
   function renderLegend() {
@@ -1058,13 +1372,18 @@
         <div class="legend-item"><span class="legend-swatch" style="--c:${t.color}"></span>${esc(t.label)}</div>`).join('')}
       <div class="legend-sep"></div>
       <div class="legend-item"><span class="legend-swatch solid"></span>Verified</div>
-      <div class="legend-item"><span class="legend-swatch dashed"></span>Not yet verified</div>`;
+      <div class="legend-item"><span class="legend-swatch dashed"></span>Not yet verified</div>
+      ${homeArea() ? `
+      <div class="legend-sep"></div>
+      <div class="legend-item"><span class="legend-swatch" style="--c:#1b6f8f"></span>Your home</div>
+      <div class="legend-item"><span class="legend-swatch dashed" style="border-color:#1b6f8f"></span>Geofence (${CONFIG.geofenceRadius / 1000} km)</div>` : ''}`;
   }
 
   /* ---------------- Event wiring ---------------- */
 
   function init() {
     if (!currentUser()) { location.replace('login.html'); return; }
+    myHome = loadHome();
 
     // Filter selects
     fillSelect($('#fType'), [['', 'All types'], ...Object.entries(TYPES).map(([k, v]) => [k, v.label])], '');
@@ -1150,9 +1469,21 @@
     });
     map.on('locationerror', () => toast('Could not get your location. Check your browser permissions.', 'error'));
 
+    window.addEventListener('resize', () => map.invalidateSize());
+    setTimeout(() => map.invalidateSize(), 300);
+
     renderLegend();
     refresh();
     showView('dashboard');
+    if (isResident() && !myHome) {
+      // Nothing else works until the resident chooses a home
+      lockApp(true);
+      beginHomeSetup({ force: true });
+    } else {
+      try { focusHome(); } catch (e) { console.error('focusHome:', e); }
+      map.invalidateSize();
+      welcome();
+    }
 
     // Keep relative times fresh
     setInterval(() => { if (!$('#viewReports').hidden) renderList(); }, 60000);
