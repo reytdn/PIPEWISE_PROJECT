@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PipeSense: Water service mapping and monitoring</title>
+  <title>PipeSense Admin: Dashboard</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,12 +12,12 @@
   <link rel="stylesheet" href="css/base.css?v=3">
   <link rel="stylesheet" href="css/style.css?v=3">
   <script>
-    // Residents only: no login -> login page, administrator -> admin dashboard.
+    // Administrator only: no login -> login page, resident -> resident dashboard.
     (function () {
       try {
         var u = JSON.parse(sessionStorage.getItem('pipesense.user'));
         if (!u) location.replace('login.html');
-        else if (u.role === 'admin') location.replace('admin_dashboard.html');
+        else if (u.role !== 'admin') location.replace('index.html');
       } catch (e) { location.replace('login.html'); }
     })();
   </script>
@@ -38,14 +38,14 @@
 
   <!-- ============ Top bar ============ -->
   <header class="topbar">
-    <a class="brand" href="./" aria-label="PipeSense home">
+    <a class="brand" href="admin_dashboard.html" aria-label="PipeSense admin home">
       <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
         <path d="M16 2.5c-5.2 0-9.2 4-9.2 9.1 0 6.6 9.2 17.9 9.2 17.9s9.2-11.300 9.2-17.900c0-5.100-4-9.100-9.200-9.100z" fill="#5CC8D7"/>
         <path d="M11 12.500h6.500a2.500 2.500 0 0 1 2.500 2.500v3.500" fill="none" stroke="#10303B" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round"/>
         <circle cx="11" cy="12.500" r="1.800" fill="#10303B"/>
       </svg>
       <span class="brand-name">PipeSense</span>
-      <span class="brand-sub">Water service map</span>
+      <span class="brand-sub">Administrator console</span>
     </a>
 
     <div class="topbar-actions">

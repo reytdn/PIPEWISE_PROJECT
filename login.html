@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log in | PipeSense</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/base.css?v=3">
+  <link rel="stylesheet" href="css/login.css?v=3">
+</head>
+<body>
+  <script>
+    // Shows a red banner when something stops the page from working,
+    // so you see the reason instead of buttons that silently do nothing.
+    function pipesenseBanner(html) {
+      var b = document.createElement('div');
+      b.className = 'boot-error';
+      b.setAttribute('role', 'alert');
+      b.innerHTML = html;
+      document.body.insertBefore(b, document.body.firstChild);
+    }
+    window.addEventListener('error', function (e) {
+      var file = (e.filename || '').split('/').pop();
+      pipesenseBanner('Script error: ' + (e.message || 'unknown') + (file ? ' (' + file + ':' + e.lineno + ')' : ''));
+    }, true);
+  </script>
+
+  <!-- ============ Login gate (shown before the dashboard) ============ -->
+  <section class="gate" id="gate" aria-labelledby="gateTitle">
+    <div class="gate-art">
+      <div class="gate-brand">
+        <svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
+          <path d="M16 2.5c-5.2 0-9.2 4-9.2 9.1 0 6.6 9.2 17.9 9.2 17.9s9.2-11.3 9.2-17.9c0-5.1-4-9.1-9.2-9.1z" fill="#5CC8D7"/>
+          <path d="M11 12.5h6.5a2.5 2.5 0 0 1 2.5 2.5v3.5" fill="none" stroke="#10303B" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="11" cy="12.5" r="1.8" fill="#10303B"/>
+        </svg>
+        <span>PipeSense</span>
+      </div>
+      <div class="gate-pitch">
+        <h2>See what is happening to your water, street by street.</h2>
+        <p>Official interruption notices and community reports, together on one map.</p>
+      </div>
+      <p class="gate-foot">Academic simulation. Not connected to any water utility.</p>
+    </div>
+
+    <div class="gate-form">
+      <div class="gate-card">
+        <h1 id="gateTitle">Log in</h1>
+        <p class="gate-lead" id="gateLead">Choose how you are using PipeSense.</p>
+
+        <div class="seg" role="tablist" aria-label="Account type" id="roleSwitch">
+          <button type="button" class="seg-btn is-active" id="segResident" role="tab" aria-selected="true">Resident</button>
+          <button type="button" class="seg-btn" id="segAdmin" role="tab" aria-selected="false">Administrator</button>
+        </div>
+
+        <!-- Resident: log in -->
+        <form id="residentForm" class="form" novalidate>
+          <label class="field">
+            <span>Username or email</span>
+            <input type="text" name="username" autocomplete="username" required>
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input type="password" name="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit" class="btn btn-primary btn-block">Log in</button>
+          <div class="or-divider"><span>New to PipeSense?</span></div>
+          <button type="button" class="btn btn-block" id="showSignup">Sign Up</button>
+        </form>
+
+        <!-- Resident: sign up -->
+        <form id="registerForm" class="form" novalidate hidden>
+          <label class="field">
+            <span>Username</span>
+            <input type="text" name="username" autocomplete="username" maxlength="30" required>
+            <small>3 to 30 letters, numbers, dots, dashes or underscores.</small>
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input type="password" name="password" autocomplete="new-password" minlength="8" required>
+            <small>At least 8 characters.</small>
+          </label>
+          <label class="field">
+            <span>Full name</span>
+            <input type="text" name="name" autocomplete="name" maxlength="100" required>
+          </label>
+          <label class="field">
+            <span>Address</span>
+            <input type="text" name="address" autocomplete="street-address" maxlength="255" required>
+          </label>
+          <label class="field">
+            <span>Email</span>
+            <input type="email" name="email" autocomplete="email" maxlength="100" required>
+          </label>
+          <button type="submit" class="btn btn-primary btn-block">Create account</button>
+          <button type="button" class="btn btn-quiet btn-block" id="backToLogin">Back to log in</button>
+        </form>
+
+        <!-- Administrator: log in -->
+        <form id="adminForm" class="form" novalidate hidden>
+          <label class="field">
+            <span>Username</span>
+            <input type="text" name="username" autocomplete="username" required>
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input type="password" name="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit" class="btn btn-primary btn-block">Log in as administrator</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="js/login.js?v=3"></script>
+  <script>
+    if (!window.__pipesenseLoginReady) {
+      pipesenseBanner('<b>login.js</b> did not load, so the buttons cannot work. It must be at <b>js/login.js</b> (next to login.html), then press Ctrl+F5.');
+    }
+    if (!getComputedStyle(document.documentElement).getPropertyValue('--ink').trim()) {
+      pipesenseBanner('<b>base.css</b> did not load. It must be at <b>css/base.css</b>, then press Ctrl+F5.');
+    }
+  </script>
+</body>
+</html>
