@@ -24,7 +24,7 @@
     'Sum-ag', 'Taculing', 'Tangub', 'Villamonte', 'Vista Alegre'
   ];
   const SESSION_KEY = 'pipesense.user';   // read by map.js
-  const HOME_USER = 'index.html';             // resident dashboard
+  const HOME_USER = 'user_dashboard.html';    // resident dashboard (index.html is the public overview)
   const HOME_ADMIN = 'admin_dashboard.html';  // administrator dashboard
 
   const homeFor = (user) => (user && user.role === 'admin' ? HOME_ADMIN : HOME_USER);
@@ -255,4 +255,7 @@
   forms.signup.addEventListener('submit', onSignup);
   forms.admin.addEventListener('submit', onAdminLogin);
   forms.login.elements.username.focus();
+
+  // The Sign Up button on the overview page links to login.html#signup
+  if (location.hash === '#signup') show('signup');
 })();

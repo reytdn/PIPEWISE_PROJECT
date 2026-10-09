@@ -3,24 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PipeSense: Water service mapping and monitoring</title>
+  <title>PipeSense: Water service overview</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-  <link rel="stylesheet" href="css/base.css?v=6">
-  <link rel="stylesheet" href="css/style.css?v=6">
-  <script>
-    // Residents only: no login -> login page, administrator -> admin dashboard.
-    (function () {
-      try {
-        var u = JSON.parse(sessionStorage.getItem('pipesense.user'));
-        if (!u) location.replace('login.html');
-        else if (u.role === 'admin') location.replace('admin_dashboard.html');
-      } catch (e) { location.replace('login.html'); }
-    })();
-  </script>
+  <link rel="stylesheet" href="css/base.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=8">
 </head>
 <body>
 
@@ -36,178 +26,66 @@
     }, true);
   </script>
 
-  <!-- ============ Top bar ============ -->
+  <!-- ============ Top bar: Log In and Sign Up at the upper left ============ -->
   <header class="topbar">
-    <a class="brand" href="./" aria-label="PipeSense home">
-      <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
-        <path d="M16 2.5c-5.2 0-9.2 4-9.2 9.1 0 6.6 9.2 17.9 9.2 17.9s9.2-11.300 9.2-17.900c0-5.100-4-9.100-9.200-9.100z" fill="#5CC8D7"/>
-        <path d="M11 12.500h6.500a2.500 2.500 0 0 1 2.500 2.500v3.500" fill="none" stroke="#10303B" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="11" cy="12.500" r="1.800" fill="#10303B"/>
-      </svg>
-      <span class="brand-name">PipeSense</span>
-      <span class="brand-sub">Water service map</span>
-    </a>
+    <div class="topbar-left">
+      <a class="brand" href="index.html" aria-label="PipeSense home">
+        <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
+          <path d="M16 2.5c-5.2 0-9.2 4-9.2 9.1 0 6.6 9.2 17.9 9.2 17.9s9.2-11.300 9.2-17.900c0-5.100-4-9.100-9.200-9.100z" fill="#5CC8D7"/>
+          <path d="M11 12.500h6.500a2.500 2.500 0 0 1 2.500 2.500v3.500" fill="none" stroke="#10303B" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="11" cy="12.500" r="1.800" fill="#10303B"/>
+        </svg>
+        <span class="brand-name">PipeSense</span>
+      </a>
 
-    <div class="topbar-actions">
-      <button type="button" class="btn btn-accent" id="btnNewReport">Report an issue</button>
-      <button type="button" class="btn btn-ghost-light" id="btnAnnounce" hidden>Post announcement</button>
-      <div class="auth-area" id="authArea"></div>
+      <nav class="public-actions" id="publicActions" aria-label="Account">
+        <a class="btn btn-ghost-light" href="login.html" id="btnLogin">Log In</a>
+        <a class="btn btn-accent" href="login.html#signup" id="btnSignup">Sign Up</a>
+      </nav>
     </div>
+
+    <span class="topbar-note">Public view, read only</span>
   </header>
 
-  <!-- ============ App body ============ -->
+  <!-- ============ Overview ============ -->
   <main class="app">
 
-    <!-- Side panel -->
     <aside class="panel" id="panel">
-      <div class="tabs" role="tablist" aria-label="Panel sections">
-        <button type="button" role="tab" class="tab is-active" id="tabDashboard" aria-selected="true" aria-controls="viewDashboard">Dashboard</button>
-        <button type="button" role="tab" class="tab" id="tabReports" aria-selected="false" aria-controls="viewReports">Reports</button>
-        <button type="button" role="tab" class="tab" id="tabInsights" aria-selected="false" aria-controls="viewInsights">Insights</button>
+      <div class="ov-head">
+        <h1>Water service right now</h1>
+        <p>Official advisories and verified community reports across Bacolod City.
+           <a href="login.html">Log in</a> to report an issue.</p>
       </div>
 
-      <!-- Reports list -->
-      <section class="view" id="viewReports" role="tabpanel" aria-labelledby="tabReports">
-        <div class="filters">
-          <label class="search">
-            <span class="sr-only">Search reports</span>
-            <input type="search" id="fSearch" placeholder="Search by title, area, or reporter" autocomplete="off">
-          </label>
-          <div class="filter-row">
-            <label>
-              <span class="sr-only">Type</span>
-              <select id="fType"></select>
-            </label>
-            <label>
-              <span class="sr-only">Status</span>
-              <select id="fStatus"></select>
-            </label>
-            <label>
-              <span class="sr-only">Verification</span>
-              <select id="fVerify">
-                <option value="">Any verification</option>
-                <option value="verified">Verified</option>
-                <option value="unverified">Unverified</option>
-              </select>
-            </label>
-          </div>
-          <div class="result-meta">
-            <span id="resultCount" aria-live="polite"></span>
-            <button type="button" class="link-btn" id="clearFilters" hidden>Clear filters</button>
-          </div>
-        </div>
-        <ul class="report-list" id="reportList"></ul>
+      <div class="ov-stats">
+        <div class="stat-strip" id="ovStats" aria-live="polite"></div>
+      </div>
+
+      <section class="ov-section" aria-labelledby="advTitle">
+        <h2 id="advTitle">Advisories <span class="ov-count" id="advCount"></span></h2>
+        <ul class="report-list" id="advList"></ul>
       </section>
 
-      <!-- Report detail -->
-      <section class="view" id="viewDetail" role="region" aria-label="Report details" hidden></section>
-
-      <!-- Insights -->
-      <section class="view" id="viewInsights" role="tabpanel" aria-labelledby="tabInsights" hidden></section>
-
-      <!-- Dashboard (resident or admin, depending on who is logged in) -->
-      <section class="view" id="viewDashboard" role="tabpanel" aria-labelledby="tabDashboard" hidden></section>
+      <section class="ov-section" aria-labelledby="repTitle">
+        <h2 id="repTitle">Reports <span class="ov-count" id="repCount"></span></h2>
+        <ul class="report-list" id="repList"></ul>
+      </section>
     </aside>
 
-    <!-- Map -->
-    <section class="mapwrap" aria-label="Water service map">
+    <section class="mapwrap" aria-label="Water service map preview">
       <div id="map"></div>
-
-      <div class="map-tools">
-        <button type="button" class="chip-btn" id="toggleHotspots" aria-pressed="false">Show frequently affected areas</button>
-        <button type="button" class="chip-btn" id="btnLocate">Find my location</button>
-      </div>
-
       <div class="legend" id="legend" aria-label="Map legend"></div>
-
-      <div class="placing-banner" id="placingBanner" role="status" hidden>
-        <strong>Tag the location</strong>
-        <span>Click the map where the issue is happening.</span>
-        <button type="button" class="btn btn-small" id="placeUseMyLocation">Use my location</button>
-        <button type="button" class="btn btn-small btn-quiet" id="placeCancel">Cancel</button>
-      </div>
     </section>
   </main>
 
-  <!-- ============ Report dialog ============ -->
-  <dialog id="reportDialog" aria-labelledby="reportTitle">
-    <div class="dialog-head">
-      <h2 id="reportTitle">Report an issue</h2>
-      <button type="button" class="icon-btn" data-close="reportDialog" aria-label="Close">&times;</button>
-    </div>
-
-    <form id="reportForm" class="form" novalidate>
-      <div class="location-box">
-        <div>
-          <div class="location-label">Pinned location</div>
-          <div id="locText" class="location-text">No pin yet</div>
-        </div>
-        <button type="button" class="btn btn-small" id="changePin">Change pin</button>
-      </div>
-
-      <div class="field-row">
-        <label class="field">
-          <span>What is happening?</span>
-          <select name="type" id="rType" required></select>
-        </label>
-        <label class="field">
-          <span>Barangay</span>
-          <select name="area" id="rArea" required></select>
-        </label>
-      </div>
-
-      <label class="field">
-        <span>Short title</span>
-        <input type="text" name="title" id="rTitleInput" maxlength="90" placeholder="Example: No water since 6 AM" required>
-      </label>
-
-      <label class="field">
-        <span>Details</span>
-        <textarea name="desc" id="rDesc" rows="3" maxlength="500" placeholder="Streets affected, how long it has lasted, anything that helps"></textarea>
-      </label>
-
-      <label class="field" id="rStatusField" hidden>
-        <span>Status</span>
-        <select name="status" id="rStatus"></select>
-      </label>
-
-      <fieldset class="official-box" id="officialBox" hidden>
-        <legend>Official announcement</legend>
-        <label class="check">
-          <input type="checkbox" id="rOfficial" name="official">
-          <span>Post as an official announcement from the water provider</span>
-        </label>
-        <div class="field-row" id="scheduleRow">
-          <label class="field">
-            <span>Starts</span>
-            <input type="datetime-local" name="startsAt" id="rStarts">
-          </label>
-          <label class="field">
-            <span>Ends</span>
-            <input type="datetime-local" name="endsAt" id="rEnds">
-          </label>
-        </div>
-      </fieldset>
-
-      <p class="form-error" id="reportError" role="alert" hidden></p>
-
-      <div class="dialog-actions">
-        <button type="button" class="btn btn-quiet" data-close="reportDialog">Cancel</button>
-        <button type="submit" class="btn btn-primary" id="reportSubmit">Submit report</button>
-      </div>
-    </form>
-  </dialog>
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/leaflet-geosearch@3.11.0/dist/bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
-    if (!window.L || !window.Swal) {
+    if (!window.L) {
       var b = document.getElementById('bootError');
-      b.textContent = 'A required library (Leaflet map or SweetAlert2) did not load. Check your internet connection and reload.';
+      b.textContent = 'The Leaflet map library did not load. Check your internet connection and reload.';
       b.hidden = false;
     }
   </script>
-  <script src="js/map.js?v=6"></script>
+  <script src="js/overview.js?v=8"></script>
 </body>
 </html>

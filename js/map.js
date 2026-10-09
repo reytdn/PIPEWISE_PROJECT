@@ -1,7 +1,7 @@
 /* ==========================================================
    PipeSense: map.js
    Leaflet map, report tagging, auth, CRUD, filters, insights.
-   Data is kept in localStorage (simulation only, no backend).
+   Reports and home markers are stored in MySQL through the PHP files in forms/.
    ========================================================== */
 (() => {
   'use strict';
@@ -9,12 +9,10 @@
   /* ---------------- Config ---------------- */
 
   const CONFIG = {
-    storageKey: 'pipesense.v3',      // new key = starts with no reports
     sessionKey: 'pipesense.user',    // JSON of the logged-in account, set by login.js
     center: [10.6713, 122.9511], // Bacolod City
     zoom: 13,
     geofenceRadius: 1000,        // meters around the resident's home
-    homeKey: 'pipesense.home.',  // + user id: the home each resident chose
     // Home marker picture. anchor = the point of the image that sits on the home spot:
     // [22, 44] = bottom middle (pin shaped image). Use [22, 22] for a round image.
     homeIcon: { url: 'assets/images/HOMEMARKER.png', size: [44, 44], anchor: [22, 44] },
@@ -152,34 +150,86 @@
     return res.isConfirmed;
   }
 
-  /* ---------------- Data store ---------------- */
+  /* ---------------- Data (MySQL, through forms/*.php) ---------------- */
 
-  // The system starts with no reports. Residents and the administrator add them.
-  function seed() {
-    return { seq: 100, session: null, reports: [] };
+  const API = {
+    reports: 'forms/reports.php',
+    deleteReport: 'forms/delete_report.php',
+    home: 'forms/save_home.php',
+    searchUsers: 'forms/search_users.php'
+  };
+
+  const db = { reports: [] };
+
+  let sessionEnding = false;
+  async function sessionExpired() {
+    if (sessionEnding) return;
+    sessionEnding = true;
+    try { sessionStorage.removeItem(CONFIG.sessionKey); } catch (e) { /* ignore */ }
+    await Swal.fire({ icon: 'warning', title: 'Session expired', text: 'Please log in again.', confirmButtonText: 'OK' });
+    location.replace('login.html');
   }
 
-  function loadDB() {
+  // Sends one request to a PHP file and returns its JSON. Throws a readable Error on failure.
+  async function api(url, fields = {}) {
+    let res;
     try {
-      const raw = localStorage.getItem(CONFIG.storageKey);
-      if (raw) {
-        const stored = JSON.parse(raw);
-        const base = seed();
-        return {
-          ...base,
-          ...stored,
-          reports: stored.reports || base.reports
-        };
-      }
-    } catch (e) { /* storage blocked or corrupted: fall back to seed */ }
-    return seed();
+      res = await fetch(url, { method: 'POST', body: new URLSearchParams(fields), credentials: 'same-origin' });
+    } catch (e) {
+      throw new Error('Cannot reach the server. Make sure Apache and MySQL are running in Laragon.');
+    }
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch (e) {
+      throw new Error('Unexpected reply from ' + url + ': ' + text.replace(/<[^>]*>/g, ' ').trim().slice(0, 160));
+    }
+    if (res.status === 401) { sessionExpired(); throw new Error(data.message || 'Session expired.'); }
+    if (data.status !== 'success') {
+      const err = new Error(data.message || 'The request failed.');
+      err.detail = data.detail;
+      throw err;
+    }
+    return data;
   }
 
-  let db = loadDB();
+  const errMsg = (e) => (e && e.message ? e.message : 'Something went wrong.') + (e && e.detail ? ` (${e.detail})` : '');
 
-  function saveDB() {
-    try { localStorage.setItem(CONFIG.storageKey, JSON.stringify(db)); }
-    catch (e) { /* ignore: data stays in memory for this session */ }
+  async function loadReports() {
+    const data = await api(API.reports, { action: 'list' });
+    db.reports = data.reports;
+  }
+
+  // Saves changes to one report; returns the saved report or null
+  async function updateReport(id, fields) {
+    try {
+      const data = await api(API.reports, { action: 'update', id, ...fields });
+      const i = db.reports.findIndex((x) => x.id === data.report.id);
+      if (i >= 0) db.reports[i] = data.report; else db.reports.push(data.report);
+      return data.report;
+    } catch (err) {
+      toast(errMsg(err), 'error');
+      return null;
+    }
+  }
+
+  // Deletes one report in the database (forms/delete_report.php)
+  async function removeReport(id) {
+    try {
+      await api(API.deleteReport, { id });
+      db.reports = db.reports.filter((x) => x.id !== id);
+      toast('Report deleted.');
+      return true;
+    } catch (err) {
+      toast(errMsg(err), 'error');
+      return false;
+    }
+  }
+
+  function showError(id, message) {
+    const el = $('#' + id);
+    el.textContent = message;
+    el.hidden = false;
   }
 
   const getReport = (id) => db.reports.find((r) => r.id === id);
@@ -678,23 +728,8 @@
           <button type="button" class="btn btn-primary" data-action="announce">Post announcement</button>
           <button type="button" class="btn" data-action="insights">See area statistics</button>
           <button type="button" class="btn" data-action="export">Download records (CSV)</button>
-          <button type="button" class="btn btn-danger" data-action="reset">Clear all reports</button>
         </div>
       </div>`;
-  }
-
-  async function resetDemo() {
-    const ok = await confirmAction({
-      title: 'Clear all reports?',
-      text: 'Every report will be removed. This cannot be undone.',
-      confirmText: 'Clear all'
-    });
-    if (!ok) return;
-    db = seed();
-    saveDB();
-    toast('All reports cleared.');
-    showView('dashboard');
-    refresh();
   }
 
   async function onDashboardClick(e) {
@@ -707,20 +742,16 @@
     if (a === 'edit' && r && canModify(r)) return openReportForm({ report: r });
     if (a === 'delete' && r && canModify(r)) {
       if (!(await confirmAction({ title: 'Delete this report?', text: 'This cannot be undone.' }))) return;
-      db.reports = db.reports.filter((x) => x.id !== r.id);
-      saveDB();
-      toast('Report deleted.');
+      if (!(await removeReport(r.id))) return;
       return refresh();
     }
     if (a === 'verify' && r && isAdmin()) {
-      r.verified = true;
-      saveDB();
+      if (!(await updateReport(r.id, { verified: '1' }))) return;
       toast('Report verified.');
       return refresh();
     }
     if (a === 'resolve' && r && isAdmin()) {
-      r.status = 'resolved';
-      saveDB();
+      if (!(await updateReport(r.id, { status: 'resolved' }))) return;
       toast('Marked as resolved.');
       return refresh();
     }
@@ -729,7 +760,6 @@
     if (a === 'announce' && isAdmin()) return beginNewReport({ official: true });
     if (a === 'insights') return showView('insights');
     if (a === 'export') return exportCSV();
-    if (a === 'reset' && isAdmin()) return resetDemo();
   }
 
   /* ---------------- Auth (the login form lives in login.html) ---------------- */
@@ -751,7 +781,7 @@
       sessionStorage.removeItem(CONFIG.sessionKey);
       sessionStorage.removeItem(CONFIG.welcomeKey);
     } catch (e) { /* ignore */ }
-    location.replace('login.html');
+    location.replace('index.html');   // back to the public overview
   }
 
   /* ---------------- Location picking ---------------- */
@@ -873,7 +903,7 @@
     });
   }
 
-  function onReportSubmit(e) {
+  async function onReportSubmit(e) {
     e.preventDefault();
     const u = currentUser();
     if (!u) return showError('reportError', 'Log in to submit a report.');
@@ -890,51 +920,43 @@
       return showError('reportError', 'The end time is before the start time. Check the schedule.');
     }
 
-    const values = {
+    const editing = !!state.editingId;
+    const payload = {
+      action: editing ? 'update' : 'create',
       type: $('#rType').value,
       area: $('#rArea').value,
       title,
       desc: $('#rDesc').value.trim(),
       lat: state.draft.lat,
-      lng: state.draft.lng,
-      startsAt: official ? startsAt : null,
-      endsAt: official ? endsAt : null
+      lng: state.draft.lng
     };
-
-    let id;
-    if (state.editingId) {
-      const r = getReport(state.editingId);
-      Object.assign(r, values);
-      if (!$('#rStatusField').hidden) r.status = $('#rStatus').value;
-      if (admin) {
-        r.source = official ? 'official' : 'community';
-        if (official) r.verified = true;
-      } else if (r.source === 'community') {
-        r.verified = false; // edits to a community report need to be verified again
-      }
-      id = r.id;
-      toast('Changes saved.');
-    } else {
-      id = 'r' + (++db.seq);
-      db.reports.push({
-        id,
-        ...values,
-        status: !$('#rStatusField').hidden ? $('#rStatus').value : 'reported',
-        source: official ? 'official' : 'community',
-        verified: official,
-        authorId: u.id,
-        author: u.name,
-        createdAt: Date.now()
-      });
-      toast(official ? 'Announcement posted.' : 'Report submitted. An admin can verify it.');
+    if (editing) payload.id = state.editingId;
+    if (!$('#rStatusField').hidden) payload.status = $('#rStatus').value;
+    if (admin) {
+      payload.official = official ? '1' : '0';
+      payload.startsAt = official && startsAt ? startsAt : '';
+      payload.endsAt = official && endsAt ? endsAt : '';
     }
 
-    saveDB();
-    clearDraftMarker();
-    state.draft = null;
-    $('#reportDialog').close();
-    refresh();
-    selectReport(id, { fly: true });
+    const btn = $('#reportSubmit');
+    btn.disabled = true;
+    try {
+      const data = await api(API.reports, payload);
+      const saved = data.report;
+      const i = db.reports.findIndex((x) => x.id === saved.id);
+      if (i >= 0) db.reports[i] = saved; else db.reports.push(saved);
+
+      toast(editing ? 'Changes saved.' : (official ? 'Announcement posted.' : 'Report submitted. An admin can verify it.'));
+      clearDraftMarker();
+      state.draft = null;
+      $('#reportDialog').close();
+      refresh();
+      selectReport(saved.id, { fly: true });
+    } catch (err) {
+      showError('reportError', errMsg(err));
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   /* ---------------- CRUD actions from the detail view ---------------- */
@@ -957,27 +979,25 @@
     }
     if (action === 'delete' && canModify(r)) {
       if (!(await confirmAction({ title: 'Delete this report?', text: 'This cannot be undone.' }))) return;
-      db.reports = db.reports.filter((x) => x.id !== r.id);
-      saveDB();
-      toast('Report deleted.');
+      if (!(await removeReport(r.id))) return;
       showView(state.from);
       refresh();
     }
     if (action === 'toggle-verify' && isAdmin()) {
-      r.verified = !r.verified;
-      saveDB();
-      toast(r.verified ? 'Report verified.' : 'Verification removed.');
+      const saved = await updateReport(r.id, { verified: r.verified ? '0' : '1' });
+      if (!saved) return;
+      toast(saved.verified ? 'Report verified.' : 'Verification removed.');
       refresh();
     }
   }
 
-  function onDetailChange(e) {
+  async function onDetailChange(e) {
     if (e.target.id !== 'adminStatus' || !isAdmin()) return;
     const r = getReport(state.selectedId);
     if (!r) return;
-    r.status = e.target.value;
-    saveDB();
-    toast(`Status changed to ${STATUSES[r.status].toLowerCase()}.`);
+    const saved = await updateReport(r.id, { status: e.target.value });
+    if (!saved) return refresh();
+    toast(`Status changed to ${STATUSES[saved.status].toLowerCase()}.`);
     refresh();
   }
 
@@ -1023,16 +1043,14 @@
   // The home the resident chose (null until they set it)
   let myHome = null;
 
-  function loadHome() {
-    try {
-      const h = JSON.parse(localStorage.getItem(CONFIG.homeKey + currentUser().id));
-      return h && isFinite(h.lat) && isFinite(h.lng) ? { lat: +h.lat, lng: +h.lng } : null;
-    } catch (e) { return null; }
+  async function fetchMyHome() {
+    const data = await api(API.home, { action: 'get' });
+    return data.home ? { lat: +data.home.lat, lng: +data.home.lng } : null;
   }
-  function saveHome(lat, lng) {
-    const h = { lat: +lat.toFixed(6), lng: +lng.toFixed(6) };
-    try { localStorage.setItem(CONFIG.homeKey + currentUser().id, JSON.stringify(h)); } catch (e) { /* ignore */ }
-    return h;
+
+  async function saveHome(lat, lng) {
+    const data = await api(API.home, { action: 'save', lat, lng });
+    return { lat: +data.home.lat, lng: +data.home.lng };
   }
 
   function homeArea() {
@@ -1350,7 +1368,14 @@
     }
 
     const first = state.forceHome;
-    myHome = saveHome(lat, lng);
+    try {
+      myHome = await saveHome(lat, lng);
+    } catch (err) {
+      await Swal.fire({ icon: 'error', title: 'Could not save your home', text: errMsg(err), confirmButtonText: 'OK' });
+      map.removeLayer(homeDraft);
+      homeDraft = null;
+      return;
+    }
     stopHomeSetup();
     lockApp(false);
     refresh();
@@ -1362,6 +1387,128 @@
   map.on('click', (e) => {
     if (state.settingHome) chooseHome(e.latlng.lat, e.latlng.lng);
   });
+
+  /* ---------------- Administrator: every resident's home ---------------- */
+
+  const usersLayer = L.layerGroup().addTo(map);
+  const userMarkers = new Map();
+  let userHomes = [];
+
+  async function loadUserHomes() {
+    const data = await api(API.home, { action: 'list' });
+    userHomes = data.homes;
+  }
+
+  function renderUserHomes() {
+    usersLayer.clearLayers();
+    userMarkers.clear();
+    if (!isAdmin()) return;
+
+    userHomes.forEach((h) => {
+      const marker = L.marker([h.lat, h.lng], { icon: homeIcon(), title: h.name });
+      marker.bindPopup(
+        `<div class="popup-title">${esc(h.name)}</div>` +
+        `<div class="popup-sub">@${esc(h.username)}<br>${esc(h.address)}</div>`,
+        { closeButton: false }
+      );
+      marker.addTo(usersLayer);
+      userMarkers.set(String(h.id), marker);
+    });
+  }
+
+  /* ---------------- Administrator: search residents (forms/search_users.php) ---------------- */
+
+  function initUserSearch() {
+    if (!isAdmin()) return;
+
+    const box = document.createElement('div');
+    box.className = 'map-search';
+    box.innerHTML = `
+      <label class="sr-only" for="userSearch">Search residents</label>
+      <input type="search" id="userSearch" placeholder="Search a resident or barangay" autocomplete="off"
+             role="combobox" aria-expanded="false" aria-controls="userSuggest" aria-autocomplete="list">
+      <ul class="suggest" id="userSuggest" role="listbox" hidden></ul>`;
+    $('.mapwrap').appendChild(box);
+
+    const input = $('#userSearch');
+    const list = $('#userSuggest');
+    let items = [];
+    let active = -1;
+    let timer = null;
+    let ticket = 0;
+
+    function close() {
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      active = -1;
+    }
+
+    function setActive(i) {
+      active = i;
+      [...list.children].forEach((li, n) => li.classList.toggle('is-active', n === i));
+    }
+
+    function render() {
+      if (!items.length) {
+        list.innerHTML = '<li class="suggest-empty">No residents found.</li>';
+      } else {
+        list.innerHTML = items.map((r, i) => `
+          <li role="option" data-i="${i}" class="${r.hasHome ? '' : 'no-home'}">
+            <strong>${esc(r.name)}</strong>
+            <span>@${esc(r.username)} &middot; ${esc(r.address)}</span>
+            ${r.hasHome ? '' : '<em>No home set yet</em>'}
+          </li>`).join('');
+      }
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      active = -1;
+    }
+
+    async function search() {
+      const q = input.value.trim();
+      if (!q) { items = []; return close(); }
+      const mine = ++ticket;
+      try {
+        const data = await api(API.searchUsers, { q });
+        if (mine !== ticket) return;           // an older answer arriving late
+        items = data.results;
+        render();
+      } catch (err) {
+        if (mine === ticket) { items = []; close(); toast(errMsg(err), 'error'); }
+      }
+    }
+
+    async function choose(i) {
+      const r = items[i];
+      if (!r) return;
+      input.value = r.name;
+      close();
+      if (!r.hasHome) return toast(`${r.name} has not set a home yet.`, 'info');
+
+      // The resident may have set a home after this page loaded
+      if (!userMarkers.has(String(r.id))) {
+        try { await loadUserHomes(); renderUserHomes(); } catch (e) { /* ignore */ }
+      }
+      map.flyTo([r.lat, r.lng], 17, { duration: 0.8 });
+      map.once('moveend', () => userMarkers.get(String(r.id))?.openPopup());
+    }
+
+    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(search, 250); });
+    input.addEventListener('focus', () => { if (items.length && input.value.trim()) render(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') return close();
+      if (list.hidden) return;
+      const n = items.length;
+      if (e.key === 'ArrowDown' && n) { e.preventDefault(); setActive((active + 1) % n); }
+      else if (e.key === 'ArrowUp' && n) { e.preventDefault(); setActive((active - 1 + n) % n); }
+      else if (e.key === 'Enter') { e.preventDefault(); choose(active >= 0 ? active : 0); }
+    });
+    list.addEventListener('mousedown', (e) => {
+      const li = e.target.closest('li[data-i]');
+      if (li) { e.preventDefault(); choose(+li.dataset.i); }
+    });
+    document.addEventListener('click', (e) => { if (!box.contains(e.target)) close(); });
+  }
 
   /* ---------------- Legend ---------------- */
 
@@ -1381,9 +1528,17 @@
 
   /* ---------------- Event wiring ---------------- */
 
-  function init() {
+  async function init() {
     if (!currentUser()) { location.replace('login.html'); return; }
-    myHome = loadHome();
+
+    // Load everything from the database before drawing the map
+    try {
+      await loadReports();
+      if (isResident()) myHome = await fetchMyHome();
+      else await loadUserHomes();
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Could not load data', text: errMsg(err), confirmButtonText: 'OK' });
+    }
 
     // Filter selects
     fillSelect($('#fType'), [['', 'All types'], ...Object.entries(TYPES).map(([k, v]) => [k, v.label])], '');
@@ -1475,6 +1630,9 @@
     renderLegend();
     refresh();
     showView('dashboard');
+    renderUserHomes();
+    initUserSearch();
+
     if (isResident() && !myHome) {
       // Nothing else works until the resident chooses a home
       lockApp(true);
@@ -1487,6 +1645,21 @@
 
     // Keep relative times fresh
     setInterval(() => { if (!$('#viewReports').hidden) renderList(); }, 60000);
+
+    // Pick up reports (and, for the admin, new home markers) added by other people
+    setInterval(async () => {
+      if (state.settingHome || state.confirmingHome || state.placing || $('#reportDialog').open) return;
+      try {
+        const before = JSON.stringify(db.reports);
+        await loadReports();
+        if (JSON.stringify(db.reports) !== before) refresh();
+        if (isAdmin()) {
+          const homesBefore = JSON.stringify(userHomes);
+          await loadUserHomes();
+          if (JSON.stringify(userHomes) !== homesBefore) renderUserHomes();
+        }
+      } catch (e) { /* try again next time */ }
+    }, 45000);
   }
 
   init();
