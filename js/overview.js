@@ -31,10 +31,31 @@
   } catch (e) { }
 
   const map = L.map('map', { zoomControl: true }).setView(CENTER, 13);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  const streetTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
+  const satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics'
+  });
+
+  const viewToggle = L.control({ position: 'topright' });
+  viewToggle.onAdd = () => {
+    const btn = L.DomUtil.create('button', 'view-toggle');
+    btn.type = 'button';
+    btn.textContent = 'Satellite';
+    L.DomEvent.disableClickPropagation(btn);
+    btn.addEventListener('click', () => {
+      const toSatellite = !map.hasLayer(satelliteTiles);
+      if (toSatellite) { map.removeLayer(streetTiles); satelliteTiles.addTo(map); }
+      else { map.removeLayer(satelliteTiles); streetTiles.addTo(map); }
+      btn.textContent = toSatellite ? 'Map' : 'Satellite';
+      btn.classList.toggle('is-on', toSatellite);
+    });
+    return btn;
+  };
+  viewToggle.addTo(map);
   window.addEventListener('resize', () => map.invalidateSize());
   setTimeout(() => map.invalidateSize(), 300);
 
@@ -80,7 +101,10 @@
   function popupHTML(r) {
     const t = TYPES[r.type] || { label: r.type };
     const when = r.source === 'official' ? schedule(r) : '';
-    return `<div class="popup-title">${esc(r.title)}</div>` +
+    const photo = r.photo
+      ? `<img class="popup-photo" src="${esc(r.photo)}" alt="Photo attached to this report" loading="lazy">`
+      : '';
+    return photo + `<div class="popup-title">${esc(r.title)}</div>` +
       `<div class="popup-sub">${esc(t.label)} &middot; ${esc(r.area)} &middot; ${esc(STATUSES[r.status] || r.status)}</div>` +
       (when ? `<div class="popup-sub">${esc(when)}</div>` : '') +
       (r.desc ? `<p style="margin:8px 0 0;max-width:240px">${esc(r.desc)}</p>` : '');
@@ -136,9 +160,19 @@
     markerLayer.clearLayers();
     markers.clear();
     reports.forEach((r) => {
+      const t = TYPES[r.type] || { color: '#587079' };
       const m = L.marker([r.lat, r.lng], { icon: pinIcon(r), title: r.title, riseOnHover: true });
-      m.bindPopup(popupHTML(r), { closeButton: false });
+      m.bindPopup(popupHTML(r), { closeButton: false, maxWidth: 260, minWidth: 180 });
+      m.on('popupopen', (ev) => {
+        const img = ev.popup.getElement() && ev.popup.getElement().querySelector('.popup-photo');
+        if (img && !img.complete) img.addEventListener('load', () => ev.popup.update());
+      });
       m.addTo(markerLayer);
+      const g = r.geofence;
+      const cStyle = { color: t.color, weight: 1.5, dashArray: '4 6', fillColor: t.color, fillOpacity: 0.09, interactive: false };
+      if (g && g.type === 'rectangle' && g.bounds) L.rectangle(g.bounds, cStyle).addTo(markerLayer);
+      else if (g && g.type === 'polygon' && g.points.length >= 3) L.polygon(g.points, cStyle).addTo(markerLayer);
+      else if (r.radius) L.circle([r.lat, r.lng], { ...cStyle, radius: r.radius }).addTo(markerLayer);
       markers.set(r.id, m);
     });
 

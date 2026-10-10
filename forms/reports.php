@@ -8,7 +8,7 @@
 
     const REPORT_SELECT =
         "SELECT id, type, status, title, description, area, lat, lng, source, verified,
-                author_id, author, radius_m, geofence, code_red,
+                author_id, author, radius_m, geofence, code_red, photo,
                 UNIX_TIMESTAMP(created_at) * 1000 AS created_ms,
                 UNIX_TIMESTAMP(resolved_at) * 1000 AS resolved_ms,
                 UNIX_TIMESTAMP(starts_at)  * 1000 AS starts_ms,
@@ -33,6 +33,7 @@
             "radius"    => (int) $r['radius_m'],
             "geofence"  => geofenceOf($r),
             "codeRed"   => (int) $r['code_red'] === 1,
+            "photo"     => $r['photo'] !== null && $r['photo'] !== '' ? $r['photo'] : null,
             "resolvedAt" => $r['resolved_ms'] !== null ? (int) $r['resolved_ms'] : null,
             "createdAt" => (int) $r['created_ms'],
             "startsAt"  => $r['starts_ms'] !== null ? (int) $r['starts_ms'] : null,
@@ -144,20 +145,21 @@
 
             $status   = 'reported';
             $official = false;
-            $radius   = DEFAULT_COVERAGE_M;
+            $radius   = typeDefaultRadius($type);
             $geofence = null;
+            $photo    = savePhotoUpload($errors);
             $codeRed  = ($admin && input('codeRed') === '1') ? 1 : 0;
             $startsAt = null;
             $endsAt   = null;
 
             if ($admin) {
+                $radius   = parseRadius(input('radius'), $errors, $type);
+                $geofence = parseGeofence(input('geofence'), $errors);
                 $status = input('status', 'reported');
                 if (!in_array($status, REPORT_STATUSES, true)) $errors[] = "Choose a valid status.";
 
                 $official = input('official') === '1';
                 if ($official) {
-                    $radius   = parseRadius(input('radius'), $errors);
-                    $geofence = parseGeofence(input('geofence'), $errors);
                     $startsAt = msToSeconds(input('startsAt'));
                     $endsAt   = msToSeconds(input('endsAt'));
                     if ($startsAt === false || $endsAt === false) {
@@ -169,9 +171,11 @@
             }
 
             if ($errors) {
+                if (is_string($photo)) deletePhotoFile($photo);
                 fail($errors[0], 400, ["errors" => $errors]);
             }
 
+            $photo      = is_string($photo) ? $photo : null;
             $latF       = round((float) $lat, 6);
             $lngF       = round((float) $lng, 6);
             $source     = $official ? 'official' : 'community';
@@ -182,14 +186,14 @@
             $stmt = $conn->prepare(
                 "INSERT INTO reports
                     (type, status, title, description, area, lat, lng,
-                     source, verified, author_id, author, starts_at, ends_at, radius_m, geofence, code_red)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, ?, ?)"
+                     source, verified, author_id, author, starts_at, ends_at, radius_m, geofence, code_red, photo)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, ?, ?, ?)"
             );
 
             $stmt->bind_param(
-                "sssssddsissiiisi",
+                "sssssddsissiiisis",
                 $type, $status, $title, $desc, $area, $latF, $lngF,
-                $source, $verified, $authorKey, $authorName, $startsAt, $endsAt, $radius, $geofence, $codeRed
+                $source, $verified, $authorKey, $authorName, $startsAt, $endsAt, $radius, $geofence, $codeRed, $photo
             );
             $stmt->execute();
             $newId = $conn->insert_id;
@@ -270,6 +274,25 @@
                 $set[] = ["code_red = ?", "i", input('codeRed') === '1' ? 1 : 0];
             }
 
+            $typeNow = hasInput('type') ? input('type') : $row['type'];
+
+            if ($admin && hasInput('radius')) {
+                $set[] = ["radius_m = ?", "i", parseRadius(input('radius'), $errors, $typeNow)];
+            }
+
+            if ($admin && hasInput('geofence')) {
+                $set[] = ["geofence = ?", "s", parseGeofence(input('geofence'), $errors)];
+            }
+
+            $newPhoto = savePhotoUpload($errors);
+            if (is_string($newPhoto)) {
+                $set[] = ["photo = ?", "s", $newPhoto];
+                $contentChanged = true;
+            } elseif ($newPhoto === null && input('removePhoto') === '1') {
+                $set[] = ["photo = ?", "s", null];
+                $contentChanged = true;
+            }
+
             $verifiedSent = hasInput('verified');
             if ($verifiedSent) {
                 if (!$admin) fail("Only the administrator can verify reports.", 403);
@@ -290,15 +313,6 @@
                     $set[] = ["source = ?", "s", $official ? 'official' : 'community'];
                     $set[] = ["starts_at = FROM_UNIXTIME(?)", "i", $startsAt];
                     $set[] = ["ends_at = FROM_UNIXTIME(?)", "i", $endsAt];
-                    if ($official && hasInput('geofence')) {
-                        $set[] = ["geofence = ?", "s", parseGeofence(input('geofence'), $errors)];
-                    }
-                    if (!$official) {
-                        $set[] = ["geofence = ?", "s", null];
-                    }
-                    if ($official && hasInput('radius')) {
-                        $set[] = ["radius_m = ?", "i", parseRadius(input('radius'), $errors)];
-                    }
                     if ($official && !$verifiedSent) {
                         $set[] = ["verified = ?", "i", 1];
                     }
@@ -309,6 +323,7 @@
             }
 
             if ($errors) {
+                if (isset($newPhoto) && is_string($newPhoto)) deletePhotoFile($newPhoto);
                 fail($errors[0], 400, ["errors" => $errors]);
             }
             if (!$set) {
@@ -326,16 +341,15 @@
             $stmt->close();
 
             $after = fetchReport($conn, $id);
+            if ($row['photo'] && $after['photo'] !== $row['photo']) deletePhotoFile($row['photo']);
             logChanges($conn, $row, $after, $me);
             $notified = $admin ? notifyAffected($conn, $id) : 0;
 
             $justVerified = $admin && (int) $row['verified'] === 0 && (int) $after['verified'] === 1;
-            $emailed      = $justVerified ? emailVerifiedReport($conn, $id) : 0;
 
             respond([
                 "status"  => "success",
-                "message" => ($justVerified ? "Report verified." . emailedSummary($emailed) : "Changes saved.") . notifySummary($notified),
-                "emailed" => $emailed,
+                "message" => ($justVerified ? "Report verified." : "Changes saved.") . notifySummary($notified),
                 "report"  => reportOut(fetchReport($conn, $id))
             ]);
         }
@@ -349,10 +363,8 @@
             if (!$row) {
                 fail("That report no longer exists.", 404);
             }
-            $active = ($row['source'] === 'official' && in_array($row['status'], ['scheduled', 'ongoing'], true))
-                    || ((int) $row['code_red'] === 1 && $row['status'] !== 'resolved');
-            if (!$active) {
-                fail("Only scheduled or ongoing announcements and open code red reports send notices.");
+            if (!reportIsAlerting($row)) {
+                fail("Only open verified reports and open code red reports send notices.");
             }
 
             $notified = notifyAffected($conn, $id, null, true);
@@ -374,17 +386,17 @@
             if (!$row) {
                 fail("That report no longer exists.", 404);
             }
-            if ((int) $row['verified'] !== 1 || $row['status'] === 'resolved') {
-                fail("Only open, verified reports send verification emails.");
+            if (!reportIsAlerting($row)) {
+                fail("Only open, verified reports send emails.");
             }
 
-            $emailed = emailVerifiedReport($conn, $id);
-            logReport($conn, $id, $row['title'], 'notified', null, (string) $emailed, $me['name'], $me['key']);
+            $sent = notifyAffected($conn, $id, null, true);
+            logReport($conn, $id, $row['title'], 'notified', null, (string) $sent, $me['name'], $me['key']);
 
             respond([
                 "status"  => "success",
-                "message" => $emailed > 0 ? "Emails sent." . emailedSummary($emailed) : trim("No new emails were needed." . notifySummary(0)),
-                "emailed" => $emailed
+                "message" => $sent > 0 ? "Emails sent." . notifySummary($sent) : "No resident has a home inside this area.",
+                "emailed" => $sent
             ]);
         }
 

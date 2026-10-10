@@ -10,70 +10,6 @@
 
     $debug = true;
 
-    $barangays = [
-        "Alangilan",
-        "Alijis",
-        "Banago",
-        "Barangay 1",
-        "Barangay 2",
-        "Barangay 3",
-        "Barangay 4",
-        "Barangay 5",
-        "Barangay 6",
-        "Barangay 7",
-        "Barangay 8",
-        "Barangay 9",
-        "Barangay 10",
-        "Barangay 11",
-        "Barangay 12",
-        "Barangay 13",
-        "Barangay 14",
-        "Barangay 15",
-        "Barangay 16",
-        "Barangay 17",
-        "Barangay 18",
-        "Barangay 19",
-        "Barangay 20",
-        "Barangay 21",
-        "Barangay 22",
-        "Barangay 23",
-        "Barangay 24",
-        "Barangay 25",
-        "Barangay 26",
-        "Barangay 27",
-        "Barangay 28",
-        "Barangay 29",
-        "Barangay 30",
-        "Barangay 31",
-        "Barangay 32",
-        "Barangay 33",
-        "Barangay 34",
-        "Barangay 35",
-        "Barangay 36",
-        "Barangay 37",
-        "Barangay 38",
-        "Barangay 39",
-        "Barangay 40",
-        "Barangay 41",
-        "Bata",
-        "Cabug",
-        "Estefania",
-        "Felisa",
-        "Granada",
-        "Handumanan",
-        "Mandalagan",
-        "Mansilingan",
-        "Montevista",
-        "Pahanocoy",
-        "Punta Taytay",
-        "Singcang-Airport",
-        "Sum-ag",
-        "Taculing",
-        "Tangub",
-        "Villamonte",
-        "Vista Alegre"
-    ];
-
     function respond($payload, $httpCode = 200)
     {
         http_response_code($httpCode);
@@ -111,10 +47,9 @@
     $username = isset($_POST['username']) ? trim($_POST['username']) : '';
     $password = isset($_POST['password']) ? $_POST['password'] : '';
     $name     = isset($_POST['name'])     ? trim($_POST['name'])     : '';
-    $address  = isset($_POST['address'])  ? trim($_POST['address'])  : '';
     $email    = isset($_POST['email'])    ? strtolower(trim($_POST['email'])) : '';
 
-    if ($username === '' || $password === '' || $name === '' || $address === '' || $email === '') {
+    if ($username === '' || $password === '' || $name === '' || $email === '') {
         respond([
             "status"  => "error",
             "message" => "Every field is required."
@@ -134,9 +69,6 @@
     }
     if (textLength($name) > 100) {
         $errors[] = "Full name is too long.";
-    }
-    if (!in_array($address, $barangays, true)) {
-        $errors[] = "Select your barangay from the list.";
     }
 
     if ($errors) {
@@ -213,8 +145,6 @@
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
 
-        $fullAddress = $address . ", Bacolod City";
-
         try {
 
             $stmt = $conn->prepare(
@@ -222,7 +152,8 @@
                  VALUES (?, ?, ?, ?, ?)"
             );
 
-            $stmt->bind_param("sssss", $username, $hash, $name, $fullAddress, $email);
+            $noAddress = "";
+            $stmt->bind_param("sssss", $username, $hash, $name, $noAddress, $email);
             $stmt->execute();
             $stmt->close();
 

@@ -20,10 +20,18 @@
     var(--ink);
 }
 
+.gate-logo {
+  display: block;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
 .gate-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 24px;

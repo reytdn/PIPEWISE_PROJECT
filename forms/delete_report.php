@@ -43,10 +43,18 @@
         $stmt->execute();
         $stmt->close();
 
+        $stmt = $conn->prepare("SELECT photo FROM reports WHERE id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $photoRow = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
         $stmt = $conn->prepare("DELETE FROM reports WHERE id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
         $stmt->close();
+
+        if ($photoRow && $photoRow['photo']) deletePhotoFile($photoRow['photo']);
 
         logReport($conn, $id, $delTitle, 'deleted', null, null, $me['name'], $me['key']);
 

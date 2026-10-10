@@ -23,7 +23,14 @@
 
     const DEFAULT_COVERAGE_M = 1000;
 
-    const RESIDENT_GEOFENCE_M = 1000;
+    const TYPE_RANGES = [
+        'interruption' => ['narrow' => 500, 'standard' => 1000, 'wide' => 2000],
+        'maintenance'  => ['narrow' => 300, 'standard' => 800,  'wide' => 1500],
+        'pressure'     => ['narrow' => 200, 'standard' => 500,  'wide' => 1000],
+        'quality'      => ['narrow' => 500, 'standard' => 1500, 'wide' => 3000]
+    ];
+
+    const MAX_PHOTO_BYTES = 5242880;
 
     const SMTP_HOST = 'smtp.gmail.com';
     const SMTP_PORT = 587;
@@ -153,6 +160,11 @@
             $conn->query("ALTER TABLE reports ADD COLUMN geofence TEXT NULL");
         }
 
+        $res = $conn->query("SHOW COLUMNS FROM reports LIKE 'photo'");
+        if ($res->num_rows === 0) {
+            $conn->query("ALTER TABLE reports ADD COLUMN photo VARCHAR(120) NULL");
+        }
+
         $res = $conn->query("SHOW COLUMNS FROM reports LIKE 'resolved_at'");
         if ($res->num_rows === 0) {
             $conn->query("ALTER TABLE reports ADD COLUMN resolved_at DATETIME NULL");
@@ -199,13 +211,19 @@
         );
     }
 
-    function parseRadius($raw, &$errors)
+    function typeDefaultRadius($type)
     {
-        if ($raw === '' || $raw === null) return DEFAULT_COVERAGE_M;
+        if (is_string($type) && isset(TYPE_RANGES[$type])) return TYPE_RANGES[$type]['standard'];
+        return DEFAULT_COVERAGE_M;
+    }
+
+    function parseRadius($raw, &$errors, $type = null)
+    {
+        if ($raw === '' || $raw === null) return typeDefaultRadius($type);
         if (!ctype_digit((string) $raw)
             || (int) $raw < MIN_COVERAGE_M || (int) $raw > MAX_COVERAGE_M) {
             $errors[] = "The coverage radius must be " . MIN_COVERAGE_M . " to " . MAX_COVERAGE_M . " meters.";
-            return DEFAULT_COVERAGE_M;
+            return typeDefaultRadius($type);
         }
         return (int) $raw;
     }
@@ -389,8 +407,13 @@
     {
         if (empty($rep['geofence'])) return null;
         $g = json_decode($rep['geofence'], true);
-        if (is_array($g) && isset($g['type']) && $g['type'] === 'polygon'
-            && isset($g['points']) && is_array($g['points']) && count($g['points']) >= 3) {
+        if (!is_array($g) || !isset($g['type'])) return null;
+
+        if ($g['type'] === 'polygon' && isset($g['points']) && is_array($g['points']) && count($g['points']) >= 3) {
+            return $g;
+        }
+        if ($g['type'] === 'rectangle' && isset($g['bounds']) && is_array($g['bounds'])
+            && count($g['bounds']) === 2 && is_array($g['bounds'][0]) && is_array($g['bounds'][1])) {
             return $g;
         }
         return null;
@@ -399,6 +422,11 @@
     function reportCovers($rep, $lat, $lng)
     {
         $g = geofenceOf($rep);
+        if ($g && $g['type'] === 'rectangle') {
+            $b = $g['bounds'];
+            return $lat >= (float) $b[0][0] && $lat <= (float) $b[1][0]
+                && $lng >= (float) $b[0][1] && $lng <= (float) $b[1][1];
+        }
         if ($g) return pointInPolygon($lat, $lng, $g['points']);
 
         $radius = isset($rep['radius_m']) && (int) $rep['radius_m'] > 0 ? (int) $rep['radius_m'] : DEFAULT_COVERAGE_M;
@@ -410,8 +438,27 @@
         if ($raw === '' || $raw === null) return null;
 
         $g = json_decode($raw, true);
-        if (!is_array($g) || !isset($g['type']) || $g['type'] !== 'polygon'
-            || !isset($g['points']) || !is_array($g['points'])) {
+        if (!is_array($g) || !isset($g['type'])) {
+            $errors[] = "The drawn coverage area is not valid.";
+            return null;
+        }
+
+        if ($g['type'] === 'rectangle') {
+            $b = isset($g['bounds']) ? $g['bounds'] : null;
+            if (!is_array($b) || count($b) !== 2 || !is_array($b[0]) || !is_array($b[1])
+                || count($b[0]) < 2 || count($b[1]) < 2
+                || !validPoint($b[0][0], $b[0][1]) || !validPoint($b[1][0], $b[1][1])
+                || (float) $b[0][0] >= (float) $b[1][0] || (float) $b[0][1] >= (float) $b[1][1]) {
+                $errors[] = "The rectangle must be inside Bacolod City and have a real size.";
+                return null;
+            }
+            return json_encode(["type" => "rectangle", "bounds" => [
+                [round((float) $b[0][0], 6), round((float) $b[0][1], 6)],
+                [round((float) $b[1][0], 6), round((float) $b[1][1], 6)]
+            ]]);
+        }
+
+        if ($g['type'] !== 'polygon' || !isset($g['points']) || !is_array($g['points'])) {
             $errors[] = "The drawn coverage area is not valid.";
             return null;
         }
@@ -437,6 +484,7 @@
     function coverageText($row)
     {
         $g = geofenceOf($row);
+        if ($g && $g['type'] === 'rectangle') return "rectangle";
         if ($g) return "drawn area, " . count($g['points']) . " points";
         return "circle " . ((int) $row['radius_m']) . " m";
     }
@@ -461,24 +509,21 @@
         return isset($labels[$t]) ? $labels[$t] : $t;
     }
 
+    function reportIsAlerting($rep)
+    {
+        if ($rep['status'] === 'resolved') return false;
+        return (int) $rep['verified'] === 1 || (int) $rep['code_red'] === 1;
+    }
+
     function reportAlertsHome($rep, $lat, $lng)
     {
-        $officialActive = $rep['source'] === 'official' && in_array($rep['status'], ['scheduled', 'ongoing'], true);
-        $codeRed        = !empty($rep['code_red']) && (int) $rep['code_red'] === 1 && $rep['status'] !== 'resolved';
-
-        if ($officialActive && reportCovers($rep, $lat, $lng)) return true;
-
-        if ($codeRed) {
-            if (haversineM((float) $rep['lat'], (float) $rep['lng'], $lat, $lng) <= RESIDENT_GEOFENCE_M) return true;
-            if ($rep['source'] === 'official' && reportCovers($rep, $lat, $lng)) return true;
-        }
-        return false;
+        return reportIsAlerting($rep) && reportCovers($rep, $lat, $lng);
     }
 
     function notifyAffected($conn, $reportId, $onlyUserId = null, $force = false)
     {
         $stmt = $conn->prepare(
-            "SELECT title, description, type, status, area, lat, lng, source, radius_m, geofence, code_red,
+            "SELECT title, description, type, status, area, lat, lng, source, verified, radius_m, geofence, code_red,
                     UNIX_TIMESTAMP(starts_at) AS s, UNIX_TIMESTAMP(ends_at) AS e,
                     UNIX_TIMESTAMP(created_at) AS c
              FROM reports WHERE id = ?"
@@ -508,15 +553,21 @@
         foreach ($homes as $h) {
             if (reportAlertsHome($rep, (float) $h['hlat'], (float) $h['hlng'])) $residents[] = $h;
         }
+        if ($onlyUserId === null && $rep['status'] !== 'resolved') {
+            $keep = array_map(function ($r) { return (int) $r['id']; }, $residents);
+            $keep[] = 0;
+            $conn->query("DELETE FROM notifications WHERE report_id = " . (int) $reportId
+                       . " AND user_id NOT IN (" . implode(",", $keep) . ")");
+        }
         if (!$residents) return 0;
 
         $codeRed = (int) $rep['code_red'] === 1 && $rep['status'] !== 'resolved';
         $when    = whenText($rep['s'], $rep['e']);
 
         if ($codeRed) {
-            $message = "CODE RED: " . $rep['title'] . " (" . $rep['area'] . "). This report is close to your home.";
+            $message = "CODE RED: " . $rep['title'] . " (" . $rep['area'] . "). Your home is inside the affected area.";
         } else {
-            $prefix  = $rep['status'] === 'ongoing' ? "Ongoing" : "Scheduled";
+            $prefix  = $rep['status'] === 'ongoing' ? "Ongoing" : ($rep['status'] === 'scheduled' ? "Scheduled" : "Reported");
             $message = $prefix . ": " . $rep['title'] . " (" . $rep['area'] . ")"
                      . ($when !== "" ? ", " . $when : "")
                      . ". Your home is inside the affected area.";
@@ -545,31 +596,40 @@
             if ($ins->affected_rows > 0) {
                 $count++;
 
+                $dist = haversineM((float) $rep['lat'], (float) $rep['lng'], (float) $r['hlat'], (float) $r['hlng']);
+
                 if ($codeRed) {
-                    $dist = (int) round(haversineM((float) $rep['lat'], (float) $rep['lng'], (float) $r['hlat'], (float) $r['hlng']));
                     $text = "CODE RED water service report\n\n"
                           . "Hello " . $r['name'] . ",\n\n"
-                          . "An urgent report was posted close to your home in PipeSense.\n\n"
+                          . "An urgent report was posted in PipeSense and your home is inside its affected area.\n\n"
                           . "Title: " . $rep['title'] . "\n"
                           . "Type: " . typeLabel($rep['type']) . "\n"
                           . "Barangay: " . $rep['area'] . "\n"
                           . "Status: " . ucfirst($rep['status']) . "\n"
                           . "Reported: " . date('M j, Y g:i A', (int) $rep['c']) . "\n"
                           . ($when !== "" ? "Schedule: " . $when . "\n" : "")
-                          . "Distance from your home: about " . $dist . " m\n\n"
+                          . "Distance from your home: about " . (int) round($dist) . " m\n\n"
                           . "Details:\n" . ($rep['description'] !== null && $rep['description'] !== '' ? $rep['description'] : "No details were added.") . "\n\n"
                           . "Open PipeSense to see it on the map.\n";
                     sendNoticeEmail((string) $r['email'], "PipeSense CODE RED: " . $rep['title'], $text);
-                } else {
+                } elseif ($rep['source'] === 'official') {
                     sendNoticeEmail(
                         (string) $r['email'],
                         "PipeSense: water service notice for your home",
                         "Hello " . $r['name'] . ",\n\n" . $message . "\n\nOpen PipeSense to see it on the map.\n"
                     );
+                } else {
+                    $copy = verifiedEmailCopy($rep['type']);
+                    sendNoticeEmail(
+                        (string) $r['email'],
+                        "PipeSense: " . $copy['subject'] . " (" . $rep['area'] . ")",
+                        verifiedEmailText($rep, $r['name'], $dist)
+                    );
                 }
             }
         }
         $ins->close();
+        smtpLink(true);
 
         return $count;
     }
@@ -581,7 +641,7 @@
         $uid = (int) $userId;
 
         $stmt = $conn->prepare(
-            "SELECT n.id AS nid, r.lat, r.lng, r.radius_m, r.geofence, r.source, r.status, r.code_red
+            "SELECT n.id AS nid, r.lat, r.lng, r.radius_m, r.geofence, r.source, r.status, r.code_red, r.verified
              FROM notifications n
              JOIN reports r ON r.id = n.report_id
              WHERE n.user_id = ?"
@@ -604,8 +664,7 @@
         $ids    = [];
         $result = $conn->query(
             "SELECT id FROM reports
-             WHERE (source = 'official' AND status IN ('scheduled', 'ongoing'))
-                OR (code_red = 1 AND status <> 'resolved')"
+             WHERE status <> 'resolved' AND (verified = 1 OR code_red = 1)"
         );
         while ($row = $result->fetch_assoc()) {
             $ids[] = (int) $row['id'];
@@ -666,14 +725,11 @@
         ];
     }
 
-    function verifiedEmailText($rep, $name, $dist, $inBarangay)
+    function verifiedEmailText($rep, $name, $dist)
     {
         $copy = verifiedEmailCopy($rep['type']);
         $when = whenText($rep['s'], $rep['e']);
 
-        $why = [];
-        if ($inBarangay)      $why[] = "your address is in " . $rep['area'];
-        if ($dist !== null && $dist <= RESIDENT_GEOFENCE_M) $why[] = "your home marker is about " . (int) round($dist) . " m from it";
 
         $text  = "Hello " . $name . ",\n\n"
                . $copy['intro'] . "\n\n"
@@ -693,93 +749,9 @@
         }
 
         $text .= "\nOpen PipeSense to see it on the map.\n";
-        if ($why) {
-            $text .= "\nYou are getting this email because " . implode(" and ", $why) . ".\n";
-        }
+        $text .= "\nYou are getting this email because your home marker is inside the area this report covers, about "
+               . (int) round($dist) . " m from the pin.\n";
         return $text;
-    }
-
-    function emailVerifiedReport($conn, $reportId)
-    {
-        $reportId = (int) $reportId;
-
-        @set_time_limit(180);
-        @ignore_user_abort(true);
-
-        $stmt = $conn->prepare(
-            "SELECT title, description, type, status, area, lat, lng, source, radius_m, geofence,
-                    code_red, verified, author_id,
-                    UNIX_TIMESTAMP(starts_at) AS s, UNIX_TIMESTAMP(ends_at) AS e,
-                    UNIX_TIMESTAMP(created_at) AS c
-             FROM reports WHERE id = ?"
-        );
-        $stmt->bind_param("i", $reportId);
-        $stmt->execute();
-        $rep = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-
-        if (!$rep || (int) $rep['verified'] !== 1 || $rep['status'] === 'resolved') return 0;
-
-        $users = $conn->query(
-            "SELECT u.id, u.name, u.email, u.address, h.lat AS hlat, h.lng AS hlng
-             FROM user_login u
-             LEFT JOIN user_homes h ON h.user_id = u.id"
-        )->fetch_all(MYSQLI_ASSOC);
-
-        $seen = $conn->prepare("SELECT 1 FROM report_emails WHERE user_id = ? AND report_id = ? AND kind = 'verified'");
-        $mark = $conn->prepare("INSERT IGNORE INTO report_emails (user_id, report_id, kind) VALUES (?, ?, 'verified')");
-
-        $sent = 0;
-        foreach ($users as $u) {
-            $uid = (int) $u['id'];
-
-            if ($u['email'] === null || trim($u['email']) === '') continue;
-            if ($rep['author_id'] === 'user-' . $uid) continue;
-
-            $inBarangay = false;
-
-            $hasHome = $u['hlat'] !== null && $u['hlng'] !== null;
-            $dist    = $hasHome ? haversineM((float) $rep['lat'], (float) $rep['lng'], (float) $u['hlat'], (float) $u['hlng']) : null;
-            $near    = $dist !== null && $dist <= RESIDENT_GEOFENCE_M;
-
-            if (!$near) continue;
-
-            if ($hasHome && reportAlertsHome($rep, (float) $u['hlat'], (float) $u['hlng'])) continue;
-
-            $seen->bind_param("ii", $uid, $reportId);
-            $seen->execute();
-            $seen->store_result();
-            $already = $seen->num_rows > 0;
-            $seen->free_result();
-            if ($already) continue;
-
-            $copy = verifiedEmailCopy($rep['type']);
-            $ok   = sendNoticeEmail(
-                (string) $u['email'],
-                "PipeSense: " . $copy['subject'] . " (" . $rep['area'] . ")",
-                verifiedEmailText($rep, $u['name'], $dist, $inBarangay)
-            );
-
-            if ($ok) {
-                $mark->bind_param("ii", $uid, $reportId);
-                $mark->execute();
-                $sent++;
-            }
-        }
-
-        $seen->close();
-        $mark->close();
-        smtpLink(true);
-        return $sent;
-    }
-
-    function emailedSummary($n)
-    {
-        if ($n > 0) {
-            return " " . $n . " resident" . ($n === 1 ? "" : "s") . " in the report's area " . ($n === 1 ? "was" : "were") . " emailed.";
-        }
-        $failed = isset($GLOBALS['PS_MAIL_FAILED']) ? (int) $GLOBALS['PS_MAIL_FAILED'] : 0;
-        return $failed > 0 ? "" : " No other resident in this area needed an email.";
     }
 
     function dbError($e, $file)
@@ -796,6 +768,67 @@
             $reply["detail"] = $e->getMessage();
         }
         respond($reply, 500);
+    }
+
+    function photoDir()
+    {
+        return dirname(__DIR__) . '/uploads/reports';
+    }
+
+    function deletePhotoFile($path)
+    {
+        if (!is_string($path) || !preg_match('#^uploads/reports/[A-Za-z0-9_]+\.(jpg|png|webp)$#', $path)) return;
+        $full = dirname(__DIR__) . '/' . $path;
+        if (is_file($full)) @unlink($full);
+    }
+
+    function savePhotoUpload(&$errors)
+    {
+        if (!isset($_FILES['photo']) || !is_array($_FILES['photo'])) return null;
+        $f = $_FILES['photo'];
+
+        if ($f['error'] === UPLOAD_ERR_NO_FILE) return null;
+        if ($f['error'] === UPLOAD_ERR_INI_SIZE || $f['error'] === UPLOAD_ERR_FORM_SIZE) {
+            $errors[] = "That photo is too large. Choose one under 5 MB.";
+            return false;
+        }
+        if ($f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) {
+            $errors[] = "The photo could not be uploaded. Try again.";
+            return false;
+        }
+        if ($f['size'] > MAX_PHOTO_BYTES) {
+            $errors[] = "That photo is too large. Choose one under 5 MB.";
+            return false;
+        }
+
+        $mime = '';
+        if (function_exists('finfo_open')) {
+            $fi   = finfo_open(FILEINFO_MIME_TYPE);
+            $mime = (string) finfo_file($fi, $f['tmp_name']);
+            finfo_close($fi);
+        } else {
+            $info = @getimagesize($f['tmp_name']);
+            $mime = $info ? (string) $info['mime'] : '';
+        }
+
+        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+        if (!isset($ext[$mime]) || !@getimagesize($f['tmp_name'])) {
+            $errors[] = "The photo must be a JPG, PNG or WebP image.";
+            return false;
+        }
+
+        $dir = photoDir();
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
+            $errors[] = "The server could not create the uploads folder.";
+            return false;
+        }
+
+        $name = bin2hex(random_bytes(12)) . '.' . $ext[$mime];
+        if (!@move_uploaded_file($f['tmp_name'], $dir . '/' . $name)) {
+            $errors[] = "The photo could not be saved on the server.";
+            return false;
+        }
+        return 'uploads/reports/' . $name;
     }
 
     function sessionIdentity()

@@ -9,6 +9,7 @@
 
         $result = $conn->query(
             "SELECT id, type, status, title, description, area, lat, lng, source, verified,
+                    radius_m, geofence, photo,
                     UNIX_TIMESTAMP(created_at) * 1000 AS created_ms,
                     UNIX_TIMESTAMP(starts_at)  * 1000 AS starts_ms,
                     UNIX_TIMESTAMP(ends_at)    * 1000 AS ends_ms
@@ -31,6 +32,9 @@
                 "lng"       => (float) $r['lng'],
                 "source"    => $r['source'],
                 "verified"  => (int) $r['verified'] === 1,
+                "radius"    => (int) $r['radius_m'],
+                "geofence"  => geofenceOf($r),
+                "photo"     => $r['photo'] !== null && $r['photo'] !== '' ? $r['photo'] : null,
                 "createdAt" => (int) $r['created_ms'],
                 "startsAt"  => $r['starts_ms'] !== null ? (int) $r['starts_ms'] : null,
                 "endsAt"    => $r['ends_ms']   !== null ? (int) $r['ends_ms']   : null

@@ -1,0 +1,7 @@
+# Uploaded photos are static files only. Never run scripts from here.
+php_flag engine off
+RemoveHandler .php .phtml .php3 .php5
+RemoveType .php .phtml .php3 .php5
+<FilesMatch "\.(php|phtml|php3|php5|phar)$">
+  Require all denied
+</FilesMatch>

@@ -4,13 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PipeSense Admin: Dashboard</title>
+  <link rel="icon" type="image/png" href="assets/images/PIPESENSE.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
   <link rel="stylesheet" href="css/base.css?v=8">
-  <link rel="stylesheet" href="css/style.css?v=8">
+  <link rel="stylesheet" href="css/style.css?v=9">
   <script>
     (function () {
       try {
@@ -37,11 +38,7 @@
 
   <header class="topbar">
     <a class="brand" href="admin_dashboard.html" aria-label="PipeSense admin home">
-      <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
-        <path d="M16 2.5c-5.2 0-9.2 4-9.2 9.1 0 6.6 9.2 17.9 9.2 17.9s9.2-11.300 9.2-17.900c0-5.100-4-9.100-9.200-9.100z" fill="#5CC8D7"/>
-        <path d="M11 12.500h6.500a2.500 2.500 0 0 1 2.500 2.500v3.500" fill="none" stroke="#10303B" stroke-width="2.600" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="11" cy="12.500" r="1.800" fill="#10303B"/>
-      </svg>
+      <img class="brand-mark" src="assets/images/PIPESENSE.png" alt="" width="44" height="44">
       <span class="brand-name">PipeSense</span>
       <span class="brand-sub">Administrator console</span>
     </a>
@@ -155,10 +152,6 @@
           <span>What is happening?</span>
           <select name="type" id="rType" required></select>
         </label>
-        <label class="field">
-          <span>Barangay</span>
-          <select name="area" id="rArea" required></select>
-        </label>
       </div>
 
       <label class="field">
@@ -171,6 +164,45 @@
         <textarea name="desc" id="rDesc" rows="3" maxlength="500" placeholder="Streets affected, how long it has lasted, anything that helps"></textarea>
       </label>
 
+      <div class="field" id="photoField">
+        <span>Photo (optional)</span>
+        <input type="file" id="rPhoto" accept="image/jpeg,image/png,image/webp">
+        <div id="photoPreview" class="photo-preview"></div>
+        <button type="button" class="btn btn-small btn-quiet" id="photoClear" hidden>Remove selected photo</button>
+        <label class="check" id="photoRemoveField" hidden>
+          <input type="checkbox" id="rPhotoRemove">
+          <span>Remove the current photo</span>
+        </label>
+        <small>JPG, PNG or WebP. It is shown when someone opens the report on the map.</small>
+      </div>
+
+      <fieldset class="official-box" id="coverageBox">
+        <legend>Affected area</legend>
+        <div class="field-row">
+          <label class="field">
+            <span>Shape</span>
+            <select id="rShape">
+              <option value="circle">Circle</option>
+              <option value="rectangle">Rectangle</option>
+              <option value="polygon">Custom shape</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Range</span>
+            <select id="rRange"></select>
+          </label>
+        </div>
+        <label class="field" id="circleRow">
+          <span>Radius (meters)</span>
+          <input type="number" id="rRadius" min="100" max="10000" step="50" value="1000">
+        </label>
+        <div class="geo-row">
+          <button type="button" class="btn btn-small" id="btnDrawArea">Adjust shape on the map</button>
+          <small id="geoSummary"></small>
+        </div>
+        <small id="geoAffected" class="geo-affected"></small>
+      </fieldset>
+
       <label class="field" id="rStatusField" hidden>
         <span>Status</span>
         <select name="status" id="rStatus"></select>
@@ -178,7 +210,7 @@
 
       <label class="check" id="codeRedField" hidden>
         <input type="checkbox" id="rCodeRed" name="codeRed">
-        <span><strong>Code red.</strong> Email every resident whose home is within 1 km of this report (or inside its coverage area).</span>
+        <span><strong>Code red.</strong> Email every resident whose home marker is inside this report's affected area.</span>
       </label>
 
       <fieldset class="official-box" id="officialBox" hidden>
@@ -196,22 +228,6 @@
             <span>Ends</span>
             <input type="datetime-local" name="endsAt" id="rEnds">
           </label>
-        </div>
-      <div class="field" id="radiusField">
-          <span>Coverage area</span>
-          <div class="check-row">
-            <label class="check"><input type="radio" name="geoType" id="rGeoCircle" value="circle" checked><span>Circle around the pin</span></label>
-            <label class="check"><input type="radio" name="geoType" id="rGeoPolygon" value="polygon"><span>Custom area drawn on the map</span></label>
-          </div>
-          <div id="circleRow">
-            <input type="number" name="radius" id="rRadius" min="100" max="10000" step="50" value="1000" aria-label="Coverage radius in meters">
-            <small>Radius in meters (100 to 10000).</small>
-          </div>
-          <div id="polygonRow" class="geo-row" hidden>
-            <button type="button" class="btn btn-small" id="btnDrawArea">Draw or edit area on the map</button>
-            <small id="geoSummary">No area drawn yet.</small>
-          </div>
-          <small id="geoAffected" class="geo-affected"></small>
         </div>
       </fieldset>
 

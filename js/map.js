@@ -6,6 +6,8 @@
     center: [10.6713, 122.9511],
     zoom: 13,
     geofenceRadius: 1000,
+    homeViewM: 1000,
+    maxPhotoPx: 1600,
     homeIcon: { url: 'assets/images/HOMEMARKER.png', size: [44, 44], anchor: [22, 44] },
     geoKey: 'pipesense.geo.v3',
     welcomeKey: 'pipesense.welcomed',
@@ -19,6 +21,16 @@
     pressure:     { label: 'Low pressure',       color: '#2f78a8' },
     quality:      { label: 'Water quality',      color: '#7a5ba6' }
   };
+
+  // starting radius in meters for each report type
+  const RANGES = {
+    interruption: { narrow: 500, standard: 1000, wide: 2000 },
+    maintenance:  { narrow: 300, standard: 800,  wide: 1500 },
+    pressure:     { narrow: 200, standard: 500,  wide: 1000 },
+    quality:      { narrow: 500, standard: 1500, wide: 3000 }
+  };
+  const RANGE_LABELS = { narrow: 'Narrower', standard: 'Standard', wide: 'Wider' };
+  const rangeFor = (type, key) => (RANGES[type] || RANGES.interruption)[key];
 
   const STATUSES = {
     reported:  'Reported',
@@ -143,8 +155,55 @@
 
   function reportCovers(r, lat, lng) {
     const g = r.geofence;
+    if (g && g.type === 'rectangle' && g.bounds) {
+      return lat >= g.bounds[0][0] && lat <= g.bounds[1][0] && lng >= g.bounds[0][1] && lng <= g.bounds[1][1];
+    }
     if (g && g.type === 'polygon' && g.points && g.points.length >= 3) return pointInPoly(lat, lng, g.points);
     return haversine(r.lat, r.lng, lat, lng) <= (r.radius || CONFIG.geofenceRadius);
+  }
+
+  const geoKind = (g) => (g && g.type === 'rectangle' ? 'rectangle' : g && g.type === 'polygon' ? 'polygon' : 'circle');
+  const clampLat = (v) => Math.min(10.799, Math.max(10.551, v));
+  const clampLng = (v) => Math.min(123.039, Math.max(122.841, v));
+
+  function rectSizeM(b) {
+    return [haversine(b[0][0], b[0][1], b[0][0], b[1][1]), haversine(b[0][0], b[0][1], b[1][0], b[0][1])];
+  }
+
+  function defaultGeo(kind, lat, lng, radius) {
+    const dLat = radius / 111320;
+    const dLng = radius / (111320 * Math.cos(lat * Math.PI / 180));
+    if (kind === 'rectangle') {
+      return { type: 'rectangle', bounds: [
+        [+clampLat(lat - dLat).toFixed(6), +clampLng(lng - dLng).toFixed(6)],
+        [+clampLat(lat + dLat).toFixed(6), +clampLng(lng + dLng).toFixed(6)]
+      ] };
+    }
+    if (kind === 'polygon') {
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i;
+        pts.push([+clampLat(lat + dLat * Math.sin(a)).toFixed(6), +clampLng(lng + dLng * Math.cos(a)).toFixed(6)]);
+      }
+      return { type: 'polygon', points: pts };
+    }
+    return null;
+  }
+
+  function shiftGeo(g, dLat, dLng) {
+    if (!g) return null;
+    if (g.type === 'rectangle') {
+      return { type: 'rectangle', bounds: g.bounds.map((p) => [+clampLat(p[0] + dLat).toFixed(6), +clampLng(p[1] + dLng).toFixed(6)]) };
+    }
+    return { type: 'polygon', points: g.points.map((p) => [+clampLat(p[0] + dLat).toFixed(6), +clampLng(p[1] + dLng).toFixed(6)]) };
+  }
+
+  function coverageLayer(r, style) {
+    const g = r.geofence;
+    if (g && g.type === 'rectangle' && g.bounds) return L.rectangle(g.bounds, style);
+    if (g && g.type === 'polygon' && g.points.length >= 3) return L.polygon(g.points, style);
+    if (r.radius) return L.circle([r.lat, r.lng], { ...style, radius: r.radius });
+    return null;
   }
 
   const Toast = Swal.mixin({
@@ -200,7 +259,17 @@
     let res;
     try {
       const u = currentUser();
-      const body = new URLSearchParams(fields);
+      const hasFile = Object.values(fields).some((v) => v instanceof Blob);
+      let body;
+      if (hasFile) {
+        body = new FormData();
+        Object.entries(fields).forEach(([k, v]) => {
+          if (v instanceof Blob) body.append(k, v, 'photo.jpg');
+          else body.append(k, v == null ? '' : v);
+        });
+      } else {
+        body = new URLSearchParams(fields);
+      }
       if (u && u.token) body.set('token', u.token);
       res = await fetch(url, { method: 'POST', body, credentials: 'same-origin' });
     } catch (e) {
@@ -327,10 +396,9 @@
 
   function affectsHome(r) {
     if (r.status === 'resolved') return false;
+    if (!r.verified && !r.codeRed) return false;
     const h = homeArea();
     if (!h) return false;
-    if (r.codeRed && haversine(h.lat, h.lng, r.lat, r.lng) <= CONFIG.geofenceRadius) return true;
-    if (r.source !== 'official') return false;
     return reportCovers(r, h.lat, h.lng);
   }
 
@@ -350,10 +418,31 @@
 
   const map = L.map('map', { zoomControl: false }).setView(CONFIG.center, CONFIG.zoom);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  const streetTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
+  const satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics'
+  });
+
+  const viewToggle = L.control({ position: 'topright' });
+  viewToggle.onAdd = () => {
+    const btn = L.DomUtil.create('button', 'view-toggle');
+    btn.type = 'button';
+    btn.textContent = 'Satellite';
+    L.DomEvent.disableClickPropagation(btn);
+    btn.addEventListener('click', () => {
+      const toSatellite = !map.hasLayer(satelliteTiles);
+      if (toSatellite) { map.removeLayer(streetTiles); satelliteTiles.addTo(map); }
+      else { map.removeLayer(satelliteTiles); streetTiles.addTo(map); }
+      btn.textContent = toSatellite ? 'Map' : 'Satellite';
+      btn.classList.toggle('is-on', toSatellite);
+    });
+    return btn;
+  };
+  viewToggle.addTo(map);
 
   const markerLayer = L.layerGroup().addTo(map);
   const hotspotLayer = L.layerGroup();
@@ -377,6 +466,16 @@
     });
   }
 
+  function popupHTML(r) {
+    const photo = r.photo
+      ? `<img class="popup-photo" src="${esc(r.photo)}" alt="Photo attached to this report" loading="lazy">`
+      : '';
+    return photo +
+      `<div class="popup-title">${esc(r.title)}</div>` +
+      `<div class="popup-sub">${esc(TYPES[r.type]?.label)} in ${esc(r.area)}, ${esc(STATUSES[r.status])}</div>` +
+      (r.desc ? `<p class="popup-desc">${esc(r.desc)}</p>` : '');
+  }
+
   function renderMarkers() {
     markerLayer.clearLayers();
     markers.clear();
@@ -386,22 +485,23 @@
         title: r.title,
         keyboard: true
       });
-      m.bindPopup(
-        `<div class="popup-title">${esc(r.title)}</div>` +
-        `<div class="popup-sub">${esc(TYPES[r.type]?.label)} in ${esc(r.area)}, ${esc(STATUSES[r.status])}</div>`,
-        { closeButton: false }
-      );
+      m.bindPopup(popupHTML(r), { closeButton: false, maxWidth: 260, minWidth: 180 });
+      m.on('popupopen', (ev) => {
+        const img = ev.popup.getElement() && ev.popup.getElement().querySelector('.popup-photo');
+        if (img && !img.complete) img.addEventListener('load', () => ev.popup.update());
+      });
       m.on('click', () => { if (!state.drawingGeo) selectReport(r.id, { fly: false }); });
       m.addTo(markerLayer);
       markers.set(r.id, m);
-      if (r.source === 'official' && r.status !== 'resolved') {
+      if (r.status !== 'resolved' && (r.source === 'official' || r.verified || isAdmin())) {
         const c = TYPES[r.type]?.color || '#587079';
-        const style = { color: c, weight: 1.5, dashArray: '4 6', fillColor: c, fillOpacity: 0.07, interactive: false };
-        if (r.geofence && r.geofence.type === 'polygon' && r.geofence.points.length >= 3) {
-          L.polygon(r.geofence.points, style).addTo(markerLayer);
-        } else if (r.radius) {
-          L.circle([r.lat, r.lng], { ...style, radius: r.radius }).addTo(markerLayer);
-        }
+        const trusted = r.source === 'official' || r.verified;
+        const style = {
+          color: c, weight: 1.5, dashArray: trusted ? '4 6' : '2 6',
+          fillColor: c, fillOpacity: trusted ? 0.09 : 0.04, interactive: false
+        };
+        const layer = coverageLayer(r, style);
+        if (layer) layer.addTo(markerLayer);
       }
     });
   }
@@ -554,10 +654,14 @@
 
   function coverageLabel(r) {
     const g = r.geofence;
+    if (g && g.type === 'rectangle') {
+      const [w, h] = rectSizeM(g.bounds);
+      return `Rectangle, about ${Math.round(w)} m by ${Math.round(h)} m`;
+    }
     if (g && g.type === 'polygon' && g.points.length >= 3) {
       return `Drawn area, ${g.points.length} points, about ${polyAreaKm2(g.points).toFixed(2)} km\u00b2`;
     }
-    return `${r.radius || CONFIG.geofenceRadius} m around the pin`;
+    return `Circle, ${r.radius || CONFIG.geofenceRadius} m around the pin`;
   }
 
   function affectedResidents(r) {
@@ -580,7 +684,7 @@
     const admin = isAdmin();
     const modify = canModify(r);
     const alertBox = affectsHome(r)
-      ? '<p class="home-alert"><strong>This affects your home.</strong> Your home marker is inside the coverage area of this announcement.</p>'
+      ? '<p class="home-alert"><strong>This affects your home.</strong> Your home marker is inside the area this report covers.</p>'
       : '';
 
     const schedule = (r.startsAt || r.endsAt)
@@ -600,6 +704,7 @@
         </div>
 
         ${alertBox}
+        ${r.photo ? `<a class="detail-photo-link" href="${esc(r.photo)}" target="_blank" rel="noopener"><img class="detail-photo" src="${esc(r.photo)}" alt="Photo attached to this report" loading="lazy"></a>` : ''}
         <p class="detail-desc">${r.desc ? esc(r.desc) : 'No details were added to this report.'}</p>
 
         <dl class="facts">
@@ -610,8 +715,8 @@
           <dt>Posted</dt><dd>${fmtDate.format(r.createdAt)} (${ago(r.createdAt)})</dd>
           <dt>Verification</dt><dd>${r.verified ? 'Verified by an administrator' : 'Not yet verified'}</dd>
           ${isOwn(r) ? `<dt>Resolution</dt><dd>${esc(STATUSES[r.status])}</dd>` : ''}
-          ${r.source === 'official' ? `<dt>Coverage</dt><dd>${esc(coverageLabel(r))}</dd>` : ''}
-          ${admin && r.source === 'official' ? `<dt>Residents in area</dt><dd>${esc(affectedText(r))}</dd>` : ''}
+          ${admin || r.verified ? `<dt>Coverage</dt><dd>${esc(coverageLabel(r))}</dd>` : ''}
+          ${admin ? `<dt>Residents in area</dt><dd>${esc(affectedText(r))}</dd>` : ''}
           ${r.status === 'resolved' && r.resolvedAt ? `<dt>Resolved</dt><dd>${fmtDate.format(r.resolvedAt)}</dd>` : ''}
           ${schedule}
         </dl>
@@ -955,11 +1060,7 @@
       if (!(await removeReport(r.id))) return;
       return refresh();
     }
-    if (a === 'verify' && r && isAdmin()) {
-      if (!(await withBusy('Verifying and emailing residents', () => updateReport(r.id, { verified: '1' })))) return;
-      verifyNotice();
-      return refresh();
-    }
+    if (a === 'verify' && r && isAdmin()) return openReportForm({ report: r, verifying: true });
     if (a === 'resolve' && r && isAdmin()) {
       if (!(await confirmAction({ title: 'Mark as resolved?', text: 'It leaves the active map but stays in the report history.', confirmText: 'Mark as resolved', danger: false }))) return;
       if (!(await updateReport(r.id, { status: 'resolved' }))) return;
@@ -1081,22 +1182,123 @@
 
   function toggleScheduleRow() {
     $('#scheduleRow').hidden = !$('#rOfficial').checked;
-    if ($('#radiusField')) $('#radiusField').hidden = !$('#rOfficial').checked;
     updateGeoUi();
   }
 
-  function openReportForm({ report = null, lat, lng, official = false, keepGeo = false } = {}) {
+  function fillRangeSelect(type, current) {
+    const sel = $('#rRange');
+    sel.innerHTML = Object.keys(RANGE_LABELS).map((k) =>
+      `<option value="${k}">${RANGE_LABELS[k]} (${rangeFor(type, k)} m)</option>`).join('') +
+      '<option value="custom">Custom size</option>';
+    sel.value = current;
+  }
+
+  function regenGeo() {
+    const d = state.draft;
+    const kind = $('#rShape').value;
+    if (!d) return;
+    const radius = Number($('#rRadius').value) || 1000;
+    state.draftGeo = kind === 'circle' ? null : defaultGeo(kind, d.lat, d.lng, radius);
+    updateGeoUi();
+  }
+
+  function onTypeChange() {
+    const key = $('#rRange').value;
+    fillRangeSelect($('#rType').value, key);
+    if (key !== 'custom') {
+      $('#rRadius').value = rangeFor($('#rType').value, key);
+      regenGeo();
+    }
+  }
+
+  function onRangeChange() {
+    const key = $('#rRange').value;
+    if (key !== 'custom') $('#rRadius').value = rangeFor($('#rType').value, key);
+    regenGeo();
+  }
+
+  function onShapeChange() { regenGeo(); }
+
+  function onRadiusInput() {
+    $('#rRange').value = 'custom';
+    regenGeo();
+  }
+
+  function loadPhotoBlob(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, CONFIG.maxPhotoPx / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth * k));
+        c.height = Math.max(1, Math.round(img.naturalHeight * k));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error('fail'))), 'image/jpeg', 0.85);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('fail')); };
+      img.src = url;
+    });
+  }
+
+  function renderPhotoUi(existing) {
+    const box = $('#photoPreview');
+    if (photoUrl) { URL.revokeObjectURL(photoUrl); photoUrl = null; }
+    if (state.photoBlob) {
+      photoUrl = URL.createObjectURL(state.photoBlob);
+      box.innerHTML = `<img src="${photoUrl}" alt="Selected photo preview">`;
+      $('#photoClear').hidden = false;
+      $('#photoRemoveField').hidden = true;
+    } else if (existing) {
+      box.innerHTML = `<img src="${esc(existing)}" alt="Current photo">`;
+      $('#photoClear').hidden = true;
+      $('#photoRemoveField').hidden = false;
+    } else {
+      box.innerHTML = '';
+      $('#photoClear').hidden = true;
+      $('#photoRemoveField').hidden = true;
+    }
+  }
+
+  async function onPhotoPicked() {
+    const file = $('#rPhoto').files[0];
+    if (!file) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      $('#rPhoto').value = '';
+      return showError('reportError', 'Choose a JPG, PNG or WebP photo.');
+    }
+    try {
+      state.photoBlob = await loadPhotoBlob(file);
+      $('#reportError').hidden = true;
+      $('#rPhotoRemove').checked = false;
+      const editing = state.editingId ? getReport(state.editingId) : null;
+      renderPhotoUi(editing && editing.photo);
+    } catch (e) {
+      $('#rPhoto').value = '';
+      showError('reportError', 'That photo could not be read. Try a different one.');
+    }
+  }
+
+  function clearPhoto() {
+    state.photoBlob = null;
+    $('#rPhoto').value = '';
+    const editing = state.editingId ? getReport(state.editingId) : null;
+    renderPhotoUi(editing && editing.photo);
+  }
+
+  function openReportForm({ report = null, lat, lng, official = false, keepGeo = false, verifying = false } = {}) {
     const admin = isAdmin();
     const editing = !!report;
     state.editingId = editing ? report.id : null;
+    state.verifying = verifying;
     state.draft = { lat: editing ? report.lat : lat, lng: editing ? report.lng : lng };
 
-    $('#reportTitle').textContent = editing ? 'Edit report' : (official ? 'Post announcement' : 'Report an issue');
-    $('#reportSubmit').textContent = editing ? 'Save changes' : (official ? 'Post announcement' : 'Submit report');
+    $('#reportTitle').textContent = verifying ? 'Verify report' : editing ? 'Edit report' : (official ? 'Post announcement' : 'Report an issue');
+    $('#reportSubmit').textContent = verifying ? 'Verify report' : editing ? 'Save changes' : (official ? 'Post announcement' : 'Submit report');
 
-    fillSelect($('#rType'), Object.entries(TYPES).map(([k, v]) => [k, v.label]), report?.type || 'interruption');
-    const areaGuess = report?.area || nearestArea(state.draft.lat, state.draft.lng);
-    fillSelect($('#rArea'), AREAS.map((a) => [a.name, a.name]), areaGuess);
+    const type = report?.type || 'interruption';
+    fillSelect($('#rType'), Object.entries(TYPES).map(([k, v]) => [k, v.label]), type);
 
     $('#rTitleInput').value = report?.title || '';
     $('#rDesc').value = report?.desc || '';
@@ -1114,11 +1316,25 @@
     $('#rOfficial').checked = editing ? report.source === 'official' : official;
     $('#rStarts').value = toLocalInput(report?.startsAt);
     $('#rEnds').value = toLocalInput(report?.endsAt);
-    if ($('#rRadius')) $('#rRadius').value = report?.radius || 1000;
+
     if (!keepGeo) {
       state.draftGeo = report?.geofence || null;
-      if ($('#rGeoPolygon')) { $('#rGeoPolygon').checked = !!state.draftGeo; $('#rGeoCircle').checked = !state.draftGeo; }
+      state.photoBlob = null;
+      $('#rPhoto').value = '';
+      $('#rPhotoRemove').checked = false;
     }
+    if ($('#rShape')) {
+      $('#rShape').value = geoKind(report?.geofence);
+      if (editing) {
+        $('#rRadius').value = report.radius || rangeFor(type, 'standard');
+        fillRangeSelect(type, verifying && !report.verified ? 'standard' : 'custom');
+        if (verifying && !report.verified && !keepGeo) onRangeChange();
+      } else {
+        $('#rRadius').value = rangeFor(type, 'standard');
+        fillRangeSelect(type, 'standard');
+      }
+    }
+    renderPhotoUi(report && report.photo);
     toggleScheduleRow();
 
     $('#reportError').hidden = true;
@@ -1136,29 +1352,18 @@
   }
 
   function onChangePin() {
+    const old = { ...state.draft };
+    const verifying = state.verifying;
+    const snapshot = captureForm();
+    const geo = state.draftGeo;
     $('#reportDialog').close();
     const editing = state.editingId ? getReport(state.editingId) : null;
-    const snapshot = {
-      type: $('#rType').value, area: $('#rArea').value, title: $('#rTitleInput').value,
-      desc: $('#rDesc').value, status: $('#rStatus').value,
-      official: $('#rOfficial').checked, starts: $('#rStarts').value, ends: $('#rEnds').value,
-      radius: $('#rRadius') ? $('#rRadius').value : '',
-      geo: $('#rGeoPolygon') ? $('#rGeoPolygon').checked : false,
-      codeRed: $('#rCodeRed') ? $('#rCodeRed').checked : false
-    };
     startPlacing((lat, lng) => {
-      openReportForm({ report: editing, lat, lng, official: snapshot.official, keepGeo: true });
-      $('#rType').value = snapshot.type;
-      $('#rTitleInput').value = snapshot.title;
-      $('#rDesc').value = snapshot.desc;
-      $('#rStatus').value = snapshot.status;
-      $('#rOfficial').checked = snapshot.official;
-      $('#rStarts').value = snapshot.starts;
-      $('#rEnds').value = snapshot.ends;
-      if ($('#rRadius')) $('#rRadius').value = snapshot.radius;
-      if ($('#rGeoPolygon')) { $('#rGeoPolygon').checked = snapshot.geo; $('#rGeoCircle').checked = !snapshot.geo; }
-      if ($('#rCodeRed')) $('#rCodeRed').checked = snapshot.codeRed;
-      toggleScheduleRow();
+      state.draftGeo = geo;
+      openReportForm({ report: editing, lat, lng, official: snapshot.official, keepGeo: true, verifying });
+      restoreForm(snapshot);
+      if (state.draftGeo) state.draftGeo = shiftGeo(state.draftGeo, lat - old.lat, lng - old.lng);
+      updateGeoUi();
     });
   }
 
@@ -1179,32 +1384,37 @@
       return showError('reportError', 'The end time is before the start time. Check the schedule.');
     }
 
-    const radius = Number($('#rRadius') ? $('#rRadius').value : 1000);
-    if (official && (!Number.isInteger(radius) || radius < 100 || radius > 10000)) {
-      return showError('reportError', 'The coverage radius must be a whole number from 100 to 10000 meters.');
-    }
-
-    const polygonOn = official && !!$('#rGeoPolygon') && $('#rGeoPolygon').checked;
-    if (polygonOn && !(state.draftGeo && state.draftGeo.points.length >= 3)) {
-      return showError('reportError', 'Draw the coverage area on the map first, or choose the circle option.');
+    const radius = admin ? Number($('#rRadius').value) : 0;
+    const kind = admin ? $('#rShape').value : 'circle';
+    if (admin) {
+      if (!Number.isInteger(radius) || radius < 100 || radius > 10000) {
+        return showError('reportError', 'The radius must be a whole number from 100 to 10000 meters.');
+      }
+      if (kind !== 'circle' && !state.draftGeo) regenGeo();
+      if (kind === 'polygon' && selfIntersects(state.draftGeo.points)) {
+        return showError('reportError', 'The lines of the drawn area cross. Adjust it on the map first.');
+      }
     }
 
     const editing = !!state.editingId;
     const payload = {
       action: editing ? 'update' : 'create',
       type: $('#rType').value,
-      area: $('#rArea').value,
+      area: nearestArea(state.draft.lat, state.draft.lng),
       title,
       desc: $('#rDesc').value.trim(),
       lat: state.draft.lat,
       lng: state.draft.lng
     };
+    if (state.photoBlob) payload.photo = state.photoBlob;
+    else if (editing && $('#rPhotoRemove').checked) payload.removePhoto = '1';
     if (editing) payload.id = state.editingId;
     if (!$('#rStatusField').hidden) payload.status = $('#rStatus').value;
     if (admin) {
+      payload.radius = String(radius);
+      payload.geofence = kind !== 'circle' && state.draftGeo ? JSON.stringify(state.draftGeo) : '';
+      if (state.verifying) payload.verified = '1';
       payload.official = official ? '1' : '0';
-      payload.radius = official ? String(radius) : '';
-      payload.geofence = polygonOn ? JSON.stringify(state.draftGeo) : '';
       payload.codeRed = $('#rCodeRed') && $('#rCodeRed').checked ? '1' : '0';
       payload.startsAt = official && startsAt ? startsAt : '';
       payload.endsAt = official && endsAt ? endsAt : '';
@@ -1218,10 +1428,12 @@
       const i = db.reports.findIndex((x) => x.id === saved.id);
       if (i >= 0) db.reports[i] = saved; else db.reports.push(saved);
 
-      toast(editing ? 'Changes saved.' : (official ? 'Announcement posted.' : 'Report submitted. An admin can verify it.'));
+      toast(state.verifying ? data.message : editing ? 'Changes saved.' : (official ? 'Announcement posted.' : 'Report submitted. An admin can verify it.'));
+      state.verifying = false;
       clearDraftMarker();
       state.draft = null;
       state.draftGeo = null;
+      state.photoBlob = null;
       $('#reportDialog').close();
       refresh();
       selectReport(saved.id, { fly: true });
@@ -1278,11 +1490,10 @@
       return;
     }
     if (action === 'toggle-verify' && isAdmin()) {
-      const saved = r.verified
-        ? await updateReport(r.id, { verified: '0' })
-        : await withBusy('Verifying and emailing residents', () => updateReport(r.id, { verified: '1' }));
+      if (!r.verified) return openReportForm({ report: r, verifying: true });
+      const saved = await updateReport(r.id, { verified: '0' });
       if (!saved) return;
-      if (saved.verified) verifyNotice(); else toast('Verification removed.');
+      toast('Verification removed.');
       refresh();
     }
   }
@@ -1443,27 +1654,14 @@
   }
 
   function openReportsNearHome() {
-    const a = homeArea();
-    if (!a) return null;
-    return db.reports.filter((r) =>
-      r.status !== 'resolved' &&
-      haversine(a.lat, a.lng, r.lat, r.lng) <= CONFIG.geofenceRadius);
+    if (!homeArea()) return null;
+    return db.reports.filter(affectsHome);
   }
 
   function renderHome() {
     homeLayer.clearLayers();
     const a = homeArea();
     if (!a) return;
-
-    L.circle([a.lat, a.lng], {
-      radius: CONFIG.geofenceRadius,
-      color: '#1b6f8f',
-      weight: 2,
-      dashArray: '6 6',
-      fillColor: '#5cc8d7',
-      fillOpacity: 0.16,
-      interactive: false
-    }).addTo(homeLayer);
 
     const hm = L.marker([a.lat, a.lng], {
       interactive: true,
@@ -1508,7 +1706,7 @@
   function focusHome() {
     const a = homeArea();
     if (!a) return;
-    const box = L.latLng(a.lat, a.lng).toBounds(CONFIG.geofenceRadius * 2);
+    const box = L.latLng(a.lat, a.lng).toBounds(CONFIG.homeViewM * 2);
     map.fitBounds(box, { padding: [30, 30] });
   }
 
@@ -1536,12 +1734,12 @@
     const near = openReportsNearHome();
     const unread = unreadNotes().length;
     const where = a
-      ? `<p style="margin:0 0 8px">Your home in <b>${esc(a.name)}</b> is marked on the map with a ${CONFIG.geofenceRadius / 1000} km geofence.</p>
+      ? `<p style="margin:0 0 8px">Your home is marked on the map.</p>
          <p style="margin:0">${near.length
-           ? `${near.length} open report${near.length === 1 ? '' : 's'} inside your geofence.`
-           : 'No open reports inside your geofence.'}</p>
+           ? `${near.length} open report${near.length === 1 ? '' : 's'} cover${near.length === 1 ? 's' : ''} your home.`
+           : 'No open reports cover your home.'}</p>
          ${unread ? `<p style="margin:8px 0 0"><b>${unread}</b> interruption notice${unread === 1 ? '' : 's'} cover${unread === 1 ? 's' : ''} your home. Check your dashboard.</p>` : ''}`
-      : '<p style="margin:0">We could not place your address on the map.</p>';
+      : '<p style="margin:0">You have not set your home on the map yet.</p>';
 
     return Swal.fire({
       icon: (near && near.length) || unread ? 'warning' : 'success',
@@ -2021,53 +2219,106 @@
   }
 
   const geoLayer = L.layerGroup().addTo(map);
-  let geoPts = [];
-  let geoPoly = null;
-  let geoDone = null;
+  let edit = null;
   let geoBanner = null;
+  let photoUrl = null;
 
-  function startGeoDraw(initial, done) {
+  const GEO_STYLE = { color: '#c9443b', weight: 2, dashArray: '6 4', fillColor: '#c9443b', fillOpacity: 0.15, interactive: false };
+
+  function geoHandle(latlng, title) {
+    return L.marker(latlng, {
+      draggable: true,
+      keyboard: false,
+      title,
+      icon: L.divIcon({ className: 'geo-handle', html: '<span></span>', iconSize: [16, 16], iconAnchor: [8, 8] })
+    }).addTo(geoLayer);
+  }
+
+  function startShapeEdit(kind, init, done) {
     state.drawingGeo = true;
-    geoPts = (initial || []).map((p) => [p[0], p[1]]);
-    geoDone = done;
+    edit = {
+      kind,
+      center: [state.draft.lat, state.draft.lng],
+      radius: init.radius || 1000,
+      bounds: init.bounds ? init.bounds.map((p) => [p[0], p[1]]) : null,
+      pts: init.points ? init.points.map((p) => [p[0], p[1]]) : [],
+      done
+    };
     $('#map').classList.add('is-placing');
     map.closePopup();
     showGeoBanner();
     redrawGeo();
-    if (geoPts.length) map.fitBounds(L.latLngBounds(geoPts).pad(0.3));
-    else if (state.draft) map.setView([state.draft.lat, state.draft.lng], 15);
+    if (kind === 'circle') map.fitBounds(L.latLng(edit.center).toBounds(edit.radius * 3), { padding: [30, 30] });
+    else if (kind === 'rectangle') map.fitBounds(L.latLngBounds(edit.bounds).pad(0.4));
+    else if (edit.pts.length) map.fitBounds(L.latLngBounds(edit.pts).pad(0.3));
+    else map.setView(edit.center, 15);
   }
 
   function stopGeoDraw() {
     state.drawingGeo = false;
+    edit = null;
     $('#map').classList.remove('is-placing');
     geoLayer.clearLayers();
-    geoPoly = null;
     if (geoBanner) geoBanner.hidden = true;
   }
 
   function redrawGeo() {
     geoLayer.clearLayers();
-    geoPoly = null;
-    if (geoPts.length >= 2) {
-      const style = { color: '#c9443b', weight: 2, dashArray: '6 4', fillColor: '#c9443b', fillOpacity: 0.15, interactive: false };
-      geoPoly = (geoPts.length >= 3 ? L.polygon(geoPts, style) : L.polyline(geoPts, style)).addTo(geoLayer);
-    }
-    geoPts.forEach((p, i) => {
-      const h = L.marker(p, {
-        draggable: true,
-        keyboard: false,
-        title: 'Drag to move this point. Right-click to remove it.',
-        icon: L.divIcon({ className: 'geo-handle', html: '<span></span>', iconSize: [16, 16], iconAnchor: [8, 8] })
-      }).addTo(geoLayer);
+    if (!edit) return;
+
+    if (edit.kind === 'circle') {
+      const c = edit.center;
+      const circle = L.circle(c, { ...GEO_STYLE, radius: edit.radius }).addTo(geoLayer);
+      const dLng = edit.radius / (111320 * Math.cos(c[0] * Math.PI / 180));
+      const h = geoHandle([c[0], c[1] + dLng], 'Drag to change the radius');
       h.on('drag', () => {
         const ll = h.getLatLng();
-        geoPts[i] = [ll.lat, ll.lng];
-        if (geoPoly) geoPoly.setLatLngs(geoPts);
+        edit.radius = Math.min(10000, Math.max(100, Math.round(haversine(c[0], c[1], ll.lat, ll.lng))));
+        circle.setRadius(edit.radius);
+        updateGeoBanner();
       });
-      h.on('dragend', updateGeoBanner);
-      h.on('contextmenu', () => { geoPts.splice(i, 1); redrawGeo(); });
-    });
+      h.on('dragend', redrawGeo);
+    } else if (edit.kind === 'rectangle') {
+      const b = edit.bounds;
+      const rect = L.rectangle(b, GEO_STYLE).addTo(geoLayer);
+      const corners = () => [[b[0][0], b[0][1]], [b[0][0], b[1][1]], [b[1][0], b[1][1]], [b[1][0], b[0][1]]];
+      const handles = corners().map((p, i) => {
+        const h = geoHandle(p, 'Drag to resize');
+        h.on('drag', () => {
+          const ll = h.getLatLng();
+          const lat = clampLat(ll.lat), lng = clampLng(ll.lng);
+          if (i === 0) { b[0][0] = lat; b[0][1] = lng; }
+          if (i === 1) { b[0][0] = lat; b[1][1] = lng; }
+          if (i === 2) { b[1][0] = lat; b[1][1] = lng; }
+          if (i === 3) { b[1][0] = lat; b[0][1] = lng; }
+          rect.setBounds(L.latLngBounds(b));
+          corners().forEach((q, j) => { if (j !== i) handles[j].setLatLng(q); });
+          updateGeoBanner();
+        });
+        h.on('dragend', () => {
+          edit.bounds = [
+            [Math.min(b[0][0], b[1][0]), Math.min(b[0][1], b[1][1])],
+            [Math.max(b[0][0], b[1][0]), Math.max(b[0][1], b[1][1])]
+          ];
+          redrawGeo();
+        });
+        return h;
+      });
+    } else {
+      const pts = edit.pts;
+      let poly = null;
+      if (pts.length >= 2) poly = (pts.length >= 3 ? L.polygon(pts, GEO_STYLE) : L.polyline(pts, GEO_STYLE)).addTo(geoLayer);
+      pts.forEach((p, i) => {
+        const h = geoHandle(p, 'Drag to move this point. Right-click to remove it.');
+        h.on('drag', () => {
+          const ll = h.getLatLng();
+          pts[i] = [ll.lat, ll.lng];
+          if (poly) poly.setLatLngs(pts);
+        });
+        h.on('dragend', updateGeoBanner);
+        h.on('contextmenu', () => { pts.splice(i, 1); redrawGeo(); });
+      });
+    }
     updateGeoBanner();
   }
 
@@ -2079,11 +2330,12 @@
       $('.mapwrap').appendChild(geoBanner);
       geoBanner.addEventListener('click', onGeoBannerClick);
     }
+    const title = { circle: 'Adjust the circle', rectangle: 'Adjust the rectangle', polygon: 'Draw the affected area' }[edit.kind];
     geoBanner.innerHTML = `
-      <strong>Draw the coverage area</strong>
+      <strong>${title}</strong>
       <span id="geoHint"></span>
-      <button type="button" class="btn btn-small" data-geo="undo">Undo point</button>
-      <button type="button" class="btn btn-small" data-geo="clear">Clear</button>
+      ${edit.kind === 'polygon' ? '<button type="button" class="btn btn-small" data-geo="undo">Undo point</button>' : ''}
+      <button type="button" class="btn btn-small" data-geo="reset">Reset</button>
       <button type="button" class="btn btn-small btn-primary" data-geo="done" id="geoDone">Use this area</button>
       <button type="button" class="btn btn-small btn-quiet" data-geo="cancel">Cancel</button>`;
     geoBanner.hidden = false;
@@ -2091,106 +2343,143 @@
 
   function updateGeoBanner() {
     const hint = $('#geoHint');
-    if (!hint) return;
-    const n = geoPts.length;
-    const bad = n >= 4 && selfIntersects(geoPts);
-    hint.textContent = bad ? 'The lines cross. Move a point so they do not.'
-      : n < 3 ? `Click the map to add points (${n} so far, at least 3).`
-      : `${n} points, about ${polyAreaKm2(geoPts).toFixed(2)} km\u00b2. Drag points to adjust.`;
+    if (!hint || !edit) return;
+    let ok = true, text = '';
+    if (edit.kind === 'circle') {
+      text = `${edit.radius} m radius. Drag the white handle to change it.`;
+    } else if (edit.kind === 'rectangle') {
+      const [w, h] = rectSizeM(edit.bounds);
+      text = `About ${Math.round(w)} m by ${Math.round(h)} m. Drag a corner to resize.`;
+      ok = w >= 20 && h >= 20;
+    } else {
+      const n = edit.pts.length;
+      const bad = n >= 4 && selfIntersects(edit.pts);
+      text = bad ? 'The lines cross. Move a point so they do not.'
+        : n < 3 ? `Click the map to add points (${n} so far, at least 3).`
+        : `${n} points, about ${polyAreaKm2(edit.pts).toFixed(2)} km\u00b2. Drag points to adjust, click the map to add more.`;
+      ok = n >= 3 && !bad;
+    }
+    hint.textContent = text;
     const done = $('#geoDone');
-    if (done) done.disabled = n < 3 || bad;
+    if (done) done.disabled = !ok;
   }
 
   function onGeoBannerClick(e) {
     const b = e.target.closest('[data-geo]');
-    if (!b) return;
+    if (!b || !edit) return;
     const act = b.dataset.geo;
-    if (act === 'undo') { geoPts.pop(); return redrawGeo(); }
-    if (act === 'clear') { geoPts = []; return redrawGeo(); }
+    if (act === 'undo') { edit.pts.pop(); return redrawGeo(); }
+    if (act === 'reset') {
+      const d = state.draft;
+      const r = Number($('#rRadius').value) || 1000;
+      if (edit.kind === 'circle') edit.radius = r;
+      else if (edit.kind === 'rectangle') edit.bounds = defaultGeo('rectangle', d.lat, d.lng, r).bounds;
+      else edit.pts = defaultGeo('polygon', d.lat, d.lng, r).points;
+      return redrawGeo();
+    }
     if (act === 'cancel') {
-      const cb = geoDone;
+      const cb = edit.done;
       stopGeoDraw();
       if (cb) cb(null);
       return;
     }
     if (act === 'done') {
-      if (geoPts.length < 3 || selfIntersects(geoPts)) return;
-      const pts = geoPts.map((p) => [+p[0].toFixed(6), +p[1].toFixed(6)]);
-      const cb = geoDone;
+      const done = $('#geoDone');
+      if (done && done.disabled) return;
+      let result;
+      if (edit.kind === 'circle') result = { radius: edit.radius };
+      else if (edit.kind === 'rectangle') {
+        result = { geo: { type: 'rectangle', bounds: edit.bounds.map((p) => [+p[0].toFixed(6), +p[1].toFixed(6)]) } };
+      } else {
+        result = { geo: { type: 'polygon', points: edit.pts.map((p) => [+p[0].toFixed(6), +p[1].toFixed(6)]) } };
+      }
+      const cb = edit.done;
       stopGeoDraw();
-      if (cb) cb(pts);
+      if (cb) cb(result);
     }
   }
 
   map.on('click', (e) => {
-    if (!state.drawingGeo) return;
+    if (!state.drawingGeo || !edit || edit.kind !== 'polygon') return;
     if (!inBacolod(e.latlng.lat, e.latlng.lng)) return toast('Keep the area inside Bacolod City.', 'warning');
-    if (geoPts.length >= 200) return toast('That is the most points one area can have.', 'warning');
-    geoPts.push([e.latlng.lat, e.latlng.lng]);
+    if (edit.pts.length >= 200) return toast('That is the most points one area can have.', 'warning');
+    edit.pts.push([e.latlng.lat, e.latlng.lng]);
     redrawGeo();
   });
 
   function captureForm() {
     return {
-      type: $('#rType').value, area: $('#rArea').value, title: $('#rTitleInput').value,
+      type: $('#rType').value, title: $('#rTitleInput').value,
       desc: $('#rDesc').value, status: $('#rStatus').value,
       official: $('#rOfficial').checked, starts: $('#rStarts').value, ends: $('#rEnds').value,
       radius: $('#rRadius') ? $('#rRadius').value : '',
+      range: $('#rRange') ? $('#rRange').value : '',
+      shape: $('#rShape') ? $('#rShape').value : 'circle',
+      removePhoto: $('#rPhotoRemove').checked,
       codeRed: $('#rCodeRed') ? $('#rCodeRed').checked : false
     };
   }
 
   function restoreForm(f) {
     $('#rType').value = f.type;
-    $('#rArea').value = f.area;
     $('#rTitleInput').value = f.title;
     $('#rDesc').value = f.desc;
     $('#rStatus').value = f.status;
     $('#rOfficial').checked = f.official;
     $('#rStarts').value = f.starts;
     $('#rEnds').value = f.ends;
-    if ($('#rRadius')) $('#rRadius').value = f.radius;
+    if ($('#rShape')) {
+      $('#rRadius').value = f.radius;
+      fillRangeSelect(f.type, f.range);
+      $('#rShape').value = f.shape;
+    }
+    $('#rPhotoRemove').checked = f.removePhoto;
     if ($('#rCodeRed')) $('#rCodeRed').checked = f.codeRed;
     toggleScheduleRow();
   }
 
   function beginDrawArea() {
-    if (!isAdmin() || !state.draft) return;
+    if (!state.draft) return;
     const editing = state.editingId ? getReport(state.editingId) : null;
     const snapshot = captureForm();
     const pin = { ...state.draft };
+    const verifying = state.verifying;
+    const kind = snapshot.shape;
+    if (kind !== 'circle' && !state.draftGeo) regenGeo();
+    const init = kind === 'circle' ? { radius: Number(snapshot.radius) || 1000 }
+      : kind === 'rectangle' ? { bounds: state.draftGeo.bounds }
+      : { points: state.draftGeo.points };
+    const geoBefore = state.draftGeo;
 
     $('#reportDialog').close();
-    startGeoDraw(state.draftGeo ? state.draftGeo.points : [], (pts) => {
-      if (pts) state.draftGeo = { type: 'polygon', points: pts };
-      openReportForm({ report: editing, lat: pin.lat, lng: pin.lng, official: snapshot.official, keepGeo: true });
+    startShapeEdit(kind, init, (result) => {
+      state.draftGeo = geoBefore;
+      if (result && result.geo) state.draftGeo = result.geo;
+      if (result && result.radius) { snapshot.radius = String(result.radius); snapshot.range = 'custom'; }
+      openReportForm({ report: editing, lat: pin.lat, lng: pin.lng, official: snapshot.official, keepGeo: true, verifying });
       restoreForm(snapshot);
-      if ($('#rGeoPolygon') && state.draftGeo) { $('#rGeoPolygon').checked = true; $('#rGeoCircle').checked = false; }
       updateGeoUi();
     });
   }
 
   function updateGeoUi() {
-    const poly = $('#rGeoPolygon');
-    if (!poly) return;
-    const on = poly.checked;
-    $('#circleRow').hidden = on;
-    $('#polygonRow').hidden = !on;
+    if (!$('#rShape')) return;
+    const kind = $('#rShape').value;
+    $('#circleRow').hidden = kind !== 'circle';
 
     const g = state.draftGeo;
-    $('#geoSummary').textContent = g
-      ? `${g.points.length} points, about ${polyAreaKm2(g.points).toFixed(2)} km\u00b2`
-      : 'No area drawn yet.';
+    const radius = Number($('#rRadius').value) || 1000;
+    let summary = '';
+    if (kind === 'circle') summary = `Circle, ${radius} m around the pin.`;
+    else if (g) summary = coverageLabel({ geofence: g }) + '.';
+    $('#geoSummary').textContent = summary;
 
     let text = '';
     const d = state.draft;
-    if (isAdmin() && d && $('#rOfficial').checked && (!on || g)) {
-      const n = affectedResidents({
-        lat: d.lat, lng: d.lng,
-        radius: Number($('#rRadius').value) || 1000,
-        geofence: on ? g : null
-      }).length;
-      text = `${n} resident${n === 1 ? '' : 's'} with a home marker inside this area will be notified.`;
+    if (isAdmin() && d) {
+      const n = affectedResidents({ lat: d.lat, lng: d.lng, radius, geofence: kind === 'circle' ? null : g }).length;
+      const when = $('#rOfficial').checked ? 'will be notified' : 'will be notified once the report is verified';
+      text = `${n} resident${n === 1 ? '' : 's'} with a home marker inside this area ${when}.`;
     }
     $('#geoAffected').textContent = text;
   }
@@ -2203,10 +2492,10 @@
       <div class="legend-sep"></div>
       <div class="legend-item"><span class="legend-swatch solid"></span>Verified</div>
       <div class="legend-item"><span class="legend-swatch dashed"></span>Not yet verified</div>
+      <div class="legend-item"><span class="legend-swatch dashed"></span>Report area (geofence)</div>
       ${homeArea() ? `
       <div class="legend-sep"></div>
-      <div class="legend-item"><span class="legend-swatch" style="--c:#1b6f8f"></span>Your home</div>
-      <div class="legend-item"><span class="legend-swatch dashed" style="border-color:#1b6f8f"></span>Geofence (${CONFIG.geofenceRadius / 1000} km)</div>` : ''}`;
+      <div class="legend-item"><span class="legend-swatch" style="--c:#1b6f8f"></span>Your home</div>` : ''}`;
   }
 
   async function init() {
@@ -2262,12 +2551,15 @@
     const th = $('#tabHistory');
     if (th) th.addEventListener('click', () => showView('history'));
 
-    if ($('#rGeoPolygon')) {
-      $('#rGeoCircle').addEventListener('change', updateGeoUi);
-      $('#rGeoPolygon').addEventListener('change', updateGeoUi);
-      $('#rRadius').addEventListener('input', updateGeoUi);
+    if ($('#rShape')) {
+      $('#rType').addEventListener('change', onTypeChange);
+      $('#rRange').addEventListener('change', onRangeChange);
+      $('#rShape').addEventListener('change', onShapeChange);
+      $('#rRadius').addEventListener('input', onRadiusInput);
       $('#btnDrawArea').addEventListener('click', beginDrawArea);
     }
+    $('#rPhoto').addEventListener('change', onPhotoPicked);
+    $('#photoClear').addEventListener('click', clearPhoto);
 
     $('#tabReports').addEventListener('click', () => showView('reports'));
     $('#tabInsights').addEventListener('click', () => showView('insights'));

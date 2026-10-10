@@ -9,13 +9,6 @@
     admin: 'forms/login_admin.php'
   };
 
-  const BARANGAYS = [
-    'Alangilan', 'Alijis', 'Banago',
-    ...Array.from({ length: 41 }, (_, i) => `Barangay ${i + 1}`),
-    'Bata', 'Cabug', 'Estefania', 'Felisa', 'Granada', 'Handumanan', 'Mandalagan',
-    'Mansilingan', 'Montevista', 'Pahanocoy', 'Punta Taytay', 'Singcang-Airport',
-    'Sum-ag', 'Taculing', 'Tangub', 'Villamonte', 'Vista Alegre'
-  ];
   const SESSION_KEY = 'pipesense.user';
   const HOME_USER = 'user_dashboard.html';
   const HOME_ADMIN = 'admin_dashboard.html';
@@ -88,15 +81,6 @@
     }).then(() => location.replace(homeFor(user)));
   }
 
-  const addressSelect = $('#signupAddress');
-  if (addressSelect) {
-    BARANGAYS.forEach((b) => {
-      const o = document.createElement('option');
-      o.value = b;
-      o.textContent = b;
-      addressSelect.appendChild(o);
-    });
-  }
 
   const forms = { login: $('#residentForm'), signup: $('#registerForm'), admin: $('#adminForm') };
 
@@ -124,11 +108,10 @@
 
   function validateSignup(v) {
     const problems = [];
-    if (!v.username || !v.password || !v.name || !v.address || !v.email) {
-      problems.push('Every field is required, including your barangay.');
+    if (!v.username || !v.password || !v.name || !v.email) {
+      problems.push('Every field is required.');
       return problems;
     }
-    if (!BARANGAYS.includes(v.address)) problems.push('Select your barangay from the list.');
     if (!USER_RE.test(v.username)) problems.push('Username must be 3 to 30 letters, numbers, dots, dashes or underscores.');
     if (v.password.length < 8) problems.push('Password must be at least 8 characters.');
     if (!EMAIL_RE.test(v.email)) problems.push('Enter a valid email address.');
@@ -164,7 +147,6 @@
       username: f.elements.username.value.trim(),
       password: f.elements.password.value,
       name: f.elements.name.value.trim(),
-      address: f.elements.address.value.trim(),
       email: f.elements.email.value.trim()
     };
 
@@ -180,7 +162,7 @@
           icon: 'success',
           title: 'Account created',
           html: `<p style="margin:0 0 6px">${esc(res.message)}</p>
-                 <p style="margin:0">Username: <b>${esc(v.username)}</b><br>Barangay: <b>${esc(v.address)}, Bacolod City</b></p>`,
+                 <p style="margin:0">Username: <b>${esc(v.username)}</b></p>`,
           confirmButtonText: 'Go to log in'
         });
         show('login');
