@@ -1,39 +1,16 @@
 <?php
 
-    // ==================================================
-    // login_user.php
-    // Resident (user) login for PipeSense
-    //
-    // Receives:  POST username (or email), password
-    // Returns:   JSON  { status, message, code?, user? }
-    //
-    // Signing up is handled by add_user.php
-    // ==================================================
-
-
-    // --------------------------------------------------
-    // RESPONSE SETTINGS
-    // --------------------------------------------------
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
     session_start();
 
-
-    // --------------------------------------------------
-    // SETTINGS
-    // --------------------------------------------------
     $host = "localhost";
     $user = "root";
     $pass = "";
     $db   = "pipesense";
 
-    // Keep true while building so the exact database problem is shown
     $debug = true;
 
-
-    // --------------------------------------------------
-    // HELPER: SEND JSON AND STOP
-    // --------------------------------------------------
     function respond($payload, $httpCode = 200)
     {
         http_response_code($httpCode);
@@ -41,10 +18,6 @@
         exit;
     }
 
-
-    // --------------------------------------------------
-    // HELPER: HOW MANY CHARACTERS A COLUMN CAN HOLD
-    // --------------------------------------------------
     function columnLength($conn, $table, $column)
     {
         $stmt = $conn->prepare(
@@ -63,20 +36,10 @@
         return (int) $length;
     }
 
-
-    // --------------------------------------------------
-    // ONLY ACCEPT POST REQUESTS
-    // --------------------------------------------------
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         respond(["status" => "error", "message" => "Invalid request."], 405);
     }
 
-
-    // --------------------------------------------------
-    // GET AND CHECK THE DATA SENT FROM JAVASCRIPT
-    // --------------------------------------------------
-
-    // The person can type either their username or their email
     $identifier = isset($_POST['username']) ? trim($_POST['username']) : '';
     $password   = isset($_POST['password']) ? $_POST['password'] : '';
 
@@ -87,10 +50,6 @@
         ]);
     }
 
-
-    // --------------------------------------------------
-    // CONNECT TO THE DATABASE
-    // --------------------------------------------------
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
     try {
@@ -98,13 +57,6 @@
         $conn = new mysqli($host, $user, $pass, $db);
         $conn->set_charset("utf8mb4");
 
-
-        // ----------------------------------------------
-        // STEP 1: DOES AN ACCOUNT EXIST?
-        // ----------------------------------------------
-
-        // Prepared statement: the ? marks are filled in safely,
-        // which protects against SQL injection
         $stmt = $conn->prepare(
             "SELECT id, username, password, name, address, email
              FROM user_login
@@ -117,32 +69,26 @@
         $stmt->close();
 
         if (!$row) {
+            password_verify($password, password_hash("dummy", PASSWORD_DEFAULT));
+            usleep(400000);
             respond([
                 "status"  => "error",
-                "code"    => "no_account",
-                "message" => "No account was found for that username or email. Sign up to create one."
+                "code"    => "bad_login",
+                "message" => "Incorrect username or password."
             ]);
         }
 
-
-        // ----------------------------------------------
-        // STEP 2: IS THE PASSWORD CORRECT?
-        // ----------------------------------------------
         if (!password_verify($password, $row['password'])) {
 
-            usleep(400000);   // short pause slows down password guessing
+            usleep(400000);
 
             respond([
                 "status"  => "error",
-                "code"    => "wrong_password",
-                "message" => "Incorrect password. Try again."
+                "code"    => "bad_login",
+                "message" => "Incorrect username or password."
             ]);
         }
 
-
-        // ----------------------------------------------
-        // Re-hash if PHP now recommends a stronger setting
-        // ----------------------------------------------
         if (password_needs_rehash($row['password'], PASSWORD_DEFAULT)
             && columnLength($conn, 'user_login', 'password') >= 60) {
 
@@ -153,17 +99,19 @@
             $upd->close();
         }
 
-
-        // ----------------------------------------------
-        // LOGIN SUCCESSFUL: the page will open the User Dashboard
-        // ----------------------------------------------
-
-        // New session id after login prevents session fixation
         session_regenerate_id(true);
         $_SESSION['pipesense_role']    = 'resident';
         $_SESSION['pipesense_user_id'] = (int) $row['id'];
 
-        // Send safe details back (never the password)
+        $token = bin2hex(random_bytes(16));
+        if (!isset($_SESSION['pipesense_tokens']) || !is_array($_SESSION['pipesense_tokens'])) {
+            $_SESSION['pipesense_tokens'] = [];
+        }
+        $_SESSION['pipesense_tokens'][$token] = ['role' => 'resident', 'id' => (int) $row['id']];
+        if (count($_SESSION['pipesense_tokens']) > 20) {
+            $_SESSION['pipesense_tokens'] = array_slice($_SESSION['pipesense_tokens'], -20, null, true);
+        }
+
         respond([
             "status"  => "success",
             "message" => "Login successful.",
@@ -173,7 +121,8 @@
                 "name"     => $row['name'],
                 "address"  => $row['address'],
                 "email"    => $row['email'],
-                "role"     => "resident"
+                "role"     => "resident",
+                "token"    => $token
             ]
         ]);
 

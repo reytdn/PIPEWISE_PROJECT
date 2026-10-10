@@ -1,10 +1,3 @@
-/* ==========================================================
-   PipeSense: login.css
-   Styles for login.html only. Load after base.css.
-   ========================================================== */
-
-/* ---------- Login gate ---------- */
-
 .gate {
   position: fixed;
   inset: 0;

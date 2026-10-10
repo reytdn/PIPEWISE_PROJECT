@@ -1,45 +1,16 @@
 <?php
 
-    // ==================================================
-    // login_admin.php
-    // Administrator login for PipeSense
-    //
-    // Receives:  POST username, password
-    // Returns:   JSON  { status, message, user? }
-    //
-    // The administrator account already exists in the
-    // "admin_login" table of the "pipesense" database.
-    // ==================================================
-
-
-    // --------------------------------------------------
-    // RESPONSE SETTINGS
-    // --------------------------------------------------
-
-    // Everything this file prints is JSON, so the
-    // JavaScript (fetch) code can read it easily
     header('Content-Type: application/json; charset=utf-8');
 
-    // Never let the browser cache a login response
     header('Cache-Control: no-store');
 
-    // Sessions let PHP remember who logged in
     session_start();
 
+    $host = "localhost";
+    $user = "root";
+    $pass = "";
+    $db   = "pipesense";
 
-    // --------------------------------------------------
-    // DATABASE CONNECTION SETTINGS
-    // --------------------------------------------------
-
-    $host = "localhost";    // database runs on this computer
-    $user = "root";         // MySQL username
-    $pass = "";             // MySQL password (empty for default XAMPP)
-    $db   = "pipesense";    // database that holds admin_login and user_login
-
-
-    // --------------------------------------------------
-    // SMALL HELPER: SEND JSON AND STOP
-    // --------------------------------------------------
     function respond($payload, $httpCode = 200)
     {
         http_response_code($httpCode);
@@ -47,10 +18,6 @@
         exit;
     }
 
-
-    // --------------------------------------------------
-    // ONLY ACCEPT POST REQUESTS
-    // --------------------------------------------------
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         respond([
             "status"  => "error",
@@ -58,13 +25,6 @@
         ], 405);
     }
 
-
-    // --------------------------------------------------
-    // GET AND CHECK THE DATA SENT FROM JAVASCRIPT
-    // --------------------------------------------------
-
-    // trim() removes accidental spaces around the username.
-    // The password is NOT trimmed, spaces can be part of it.
     $username = isset($_POST['username']) ? trim($_POST['username']) : '';
     $password = isset($_POST['password']) ? $_POST['password'] : '';
 
@@ -75,12 +35,6 @@
         ]);
     }
 
-
-    // --------------------------------------------------
-    // CREATE DATABASE CONNECTION
-    // --------------------------------------------------
-
-    // Make MySQLi throw exceptions so we can catch problems
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
     try {
@@ -88,13 +42,6 @@
         $conn = new mysqli($host, $user, $pass, $db);
         $conn->set_charset("utf8mb4");
 
-
-        // ----------------------------------------------
-        // FIND THE ADMINISTRATOR BY USERNAME
-        // ----------------------------------------------
-
-        // Prepared statement: the ? is filled in safely later,
-        // which protects against SQL injection
         $stmt = $conn->prepare(
             "SELECT id, username, password, email
              FROM admin_login
@@ -102,81 +49,51 @@
              LIMIT 1"
         );
 
-        // "s" = the value is a string
         $stmt->bind_param("s", $username);
         $stmt->execute();
 
-        // Fetch the matching row (or null if none)
         $admin = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
-
-        // ----------------------------------------------
-        // CHECK THE PASSWORD
-        // ----------------------------------------------
-
-        $valid        = false;   // did the password match?
-        $needsUpgrade = false;   // is the stored password still plain text?
+        $valid        = false;
+        $needsUpgrade = false;
 
         if ($admin) {
 
             $stored = $admin['password'];
 
-            // password_get_info() tells us if the stored value
-            // is a real password_hash() result
             $info   = password_get_info($stored);
             $isHash = !empty($info['algo']);
 
             if ($isHash) {
 
-                // Normal case: compare against the secure hash
                 $valid = password_verify($password, $stored);
 
-                // Re-hash if PHP now recommends a stronger setting
                 $needsUpgrade = $valid && password_needs_rehash($stored, PASSWORD_DEFAULT);
 
             } else {
 
-                // The admin password was saved as plain text
-                // (as in the original table). Compare it safely,
-                // then convert it to a hash below.
                 $valid        = hash_equals($stored, $password);
                 $needsUpgrade = $valid;
             }
 
         } else {
 
-            // Username not found. Still run a hash check so a
-            // wrong username takes as long as a wrong password.
             password_verify($password, password_hash("dummy", PASSWORD_DEFAULT));
         }
 
-
-        // ----------------------------------------------
-        // WRONG USERNAME OR PASSWORD
-        // ----------------------------------------------
         if (!$valid) {
 
-            // Short pause slows down password guessing
             usleep(400000);
 
-            // Same message for both cases, so attackers cannot
-            // tell whether the username exists
             respond([
                 "status"  => "error",
                 "message" => "Incorrect username or password."
             ]);
         }
 
-
-        // ----------------------------------------------
-        // UPGRADE PLAIN-TEXT PASSWORD TO A SECURE HASH
-        // ----------------------------------------------
         if ($needsUpgrade) {
 
-            // A bcrypt hash is 60 characters. If the column is shorter,
-            // saving the hash would cut it off and lock the admin out,
-            // so only upgrade when the column is wide enough.
             $lenStmt = $conn->prepare(
                 "SELECT CHARACTER_MAXIMUM_LENGTH
                  FROM information_schema.COLUMNS
@@ -200,18 +117,20 @@
             }
         }
 
-
-        // ----------------------------------------------
-        // LOGIN SUCCESSFUL
-        // ----------------------------------------------
-
-        // New session id after login prevents session fixation
         session_regenerate_id(true);
 
         $_SESSION['pipesense_role']    = 'admin';
         $_SESSION['pipesense_user_id'] = (int) $admin['id'];
 
-        // Send safe details back (never the password)
+        $token = bin2hex(random_bytes(16));
+        if (!isset($_SESSION['pipesense_tokens']) || !is_array($_SESSION['pipesense_tokens'])) {
+            $_SESSION['pipesense_tokens'] = [];
+        }
+        $_SESSION['pipesense_tokens'][$token] = ['role' => 'admin', 'id' => (int) $admin['id']];
+        if (count($_SESSION['pipesense_tokens']) > 20) {
+            $_SESSION['pipesense_tokens'] = array_slice($_SESSION['pipesense_tokens'], -20, null, true);
+        }
+
         respond([
             "status"  => "success",
             "message" => "Login successful.",
@@ -220,13 +139,13 @@
                 "username" => $admin['username'],
                 "name"     => "PipeSense Admin",
                 "email"    => $admin['email'],
-                "role"     => "admin"
+                "role"     => "admin",
+                "token"    => $token
             ]
         ]);
 
     } catch (mysqli_sql_exception $e) {
 
-        // Log the technical details on the server only
         error_log("login_admin.php: " . $e->getMessage());
 
         respond([

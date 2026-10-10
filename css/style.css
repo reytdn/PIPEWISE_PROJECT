@@ -1,10 +1,3 @@
-/* ==========================================================
-   PipeSense: style.css
-   Styles for the app (index.html). Load after base.css.
-   ========================================================== */
-
-/* ---------- Top bar ---------- */
-
 .topbar {
   height: var(--bar);
   display: flex;
@@ -70,8 +63,6 @@
 }
 .user-chip span { color: #a9c4cb; font-size: 12px; }
 
-/* ---------- Layout ---------- */
-
 .app {
   display: grid;
   grid-template-columns: var(--panel-w) 1fr;
@@ -102,8 +93,6 @@
 #map.is-placing { cursor: crosshair; }
 #map.is-placing .leaflet-grab { cursor: crosshair; }
 
-/* ---------- Tabs ---------- */
-
 .tabs {
   display: flex;
   position: sticky;
@@ -130,8 +119,6 @@
 
 .view { padding: 0; flex: 1; }
 
-/* ---------- Filters ---------- */
-
 .filters {
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--line);
@@ -154,8 +141,6 @@
   font-size: 13px;
   color: var(--muted);
 }
-
-/* ---------- Report list ---------- */
 
 .report-list {
   list-style: none;
@@ -251,8 +236,6 @@
 }
 .empty h3 { color: var(--ink); font-size: 17px; margin-bottom: 6px; }
 
-/* ---------- Detail view ---------- */
-
 .detail { padding: 16px 20px 28px; }
 
 .back {
@@ -304,8 +287,6 @@
 .admin-box select { width: auto; flex: 1; min-width: 140px; }
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-
-/* ---------- Insights ---------- */
 
 .insights { padding: 18px 20px 28px; }
 
@@ -385,8 +366,6 @@
 
 .insight-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* ---------- Dashboards ---------- */
-
 .queue-item {
   --c: var(--muted);
   position: relative;
@@ -424,8 +403,6 @@
   color: var(--muted);
   font-size: 14px;
 }
-
-/* ---------- Map overlays ---------- */
 
 .map-tools {
   position: absolute;
@@ -514,8 +491,6 @@
 .placing-banner .btn:hover { background: #26566a; }
 .placing-banner .btn-quiet { background: transparent; border-color: transparent; }
 
-/* ---------- Leaflet pins ---------- */
-
 .leaflet-div-icon.pin-wrap,
 .pin-wrap {
   background: none;
@@ -566,8 +541,6 @@
 .leaflet-popup-content { font-family: var(--font-body); margin: 12px 14px; }
 .popup-title { font-weight: 600; margin-bottom: 2px; }
 .popup-sub { font-size: 12.500px; color: var(--muted); }
-
-/* ---------- Dialogs and forms ---------- */
 
 dialog {
   width: min(520px, calc(100vw - 24px));
@@ -626,8 +599,6 @@ dialog::backdrop { background: rgba(16, 48, 59, 0.55); }
 
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
-/* ---------- Toast ---------- */
-
 .toast {
   position: fixed;
   left: 50%;
@@ -642,8 +613,6 @@ dialog::backdrop { background: rgba(16, 48, 59, 0.55); }
   font-size: 14px;
   box-shadow: 0 6px 20px rgba(16, 48, 59, 0.4);
 }
-
-/* ---------- Responsive ---------- */
 
 @media (max-width: 900px) {
   :root { --panel-w: 360px; }
@@ -678,17 +647,12 @@ dialog::backdrop { background: rgba(16, 48, 59, 0.55); }
   .filter-row label:last-child { grid-column: 1 / -1; }
 }
 
-
-/* ---------- Home required before using the app ---------- */
-
 body.needs-home #panel,
 body.needs-home .map-tools,
 body.needs-home #btnNewReport {
   opacity: 0.4;
   pointer-events: none;
 }
-
-/* ---------- Administrator: resident search ---------- */
 
 .map-search {
   position: absolute;
@@ -732,8 +696,6 @@ body.needs-home #btnNewReport {
   .map-search { top: 56px; }
 }
 
-/* ---------- Public overview page ---------- */
-
 .topbar-left {
   display: flex;
   align-items: center;
@@ -773,3 +735,89 @@ body.needs-home #btnNewReport {
   .topbar-left { gap: 10px; }
   .public-actions { padding-left: 10px; }
 }
+
+input[type="date"],
+input[type="number"] {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid #b9c9c7;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.filter-row-2 { grid-template-columns: 1fr 1fr; }
+.date-field { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
+.date-field input { padding: 7px 8px; font-size: 13px; color: var(--ink); }
+
+.pill-mine { background: #e3f0f5; color: var(--water-dark); }
+.pill-affects { background: #fbeceb; color: #8f2b24; }
+
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--t-interruption);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.notice-item {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.notice-item.is-unread {
+  border-color: #e3b7b3;
+  background: #fdf5f4;
+  box-shadow: inset 4px 0 0 var(--t-interruption);
+}
+
+.home-alert {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: #fbeceb;
+  color: #8f2b24;
+  font-size: 14px;
+}
+
+.stat-strip-3 { grid-template-columns: repeat(3, 1fr); }
+.stat-strip-3 .stat { border-bottom: 1px solid var(--line); }
+.stat-strip-3 .stat:nth-child(3n) { border-right: 0; }
+.stat-strip-3 .stat:nth-last-child(-n + 3) { border-bottom: 0; }
+
+.check-row { display: grid; gap: 8px; margin: 4px 0 8px; }
+.geo-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.geo-affected { color: var(--water-dark); font-weight: 600; }
+
+.hist-controls { margin-bottom: 14px; }
+.hist-controls .filter-row { margin-top: 8px; }
+
+.log-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.log-row:last-child { border-bottom: 0; }
+.log-when { flex: none; text-align: right; font-size: 12px; color: var(--muted); }
+
+.geo-handle span {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #c9443b;
+  box-shadow: 0 1px 4px rgba(16, 48, 59, 0.5);
+  cursor: grab;
+}
+
+.pill-codered { background: #c9443b; color: #fff; font-weight: 700; }
+.pin.is-codered { filter: drop-shadow(0 0 6px #c9443b) drop-shadow(0 0 2px #c9443b); }

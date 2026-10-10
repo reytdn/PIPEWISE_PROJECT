@@ -1,18 +1,5 @@
 <?php
 
-    // ==================================================
-    // save_home.php
-    // The home marker each resident chooses on the map.
-    //
-    // Receives:  POST action = save | get | list
-    //   save:  lat, lng      (resident only, saves or replaces their home)
-    //   get:   nothing       (resident: returns their own home, or null)
-    //   list:  nothing       (administrator only: every resident's home)
-    // Returns:   JSON  { status, message?, home? | homes? }
-    //
-    // Table: user_homes (one row per resident)
-    // ==================================================
-
     require __DIR__ . '/common.php';
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -25,10 +12,6 @@
         $me     = actor();
         $action = input('action');
 
-
-        // ==============================================
-        // SAVE (insert, or replace the old home)
-        // ==============================================
         if ($action === 'save') {
 
             if ($me['role'] !== 'resident') {
@@ -46,7 +29,6 @@
             $lngF   = round((float) $lng, 6);
             $userId = $me['id'];
 
-            // One home per resident: a second save replaces the first
             $stmt = $conn->prepare(
                 "INSERT INTO user_homes (user_id, lat, lng)
                  VALUES (?, ?, ?)
@@ -59,14 +41,11 @@
             respond([
                 "status"  => "success",
                 "message" => "Home saved.",
+            "notified" => notifyUserForActiveAdvisories($conn, $userId, $latF, $lngF),
                 "home"    => ["lat" => $latF, "lng" => $lngF]
             ]);
         }
 
-
-        // ==============================================
-        // GET: the logged in resident's own home
-        // ==============================================
         if ($action === 'get') {
 
             $home = null;
@@ -87,10 +66,6 @@
             respond(["status" => "success", "home" => $home]);
         }
 
-
-        // ==============================================
-        // LIST: every resident's home (administrator only)
-        // ==============================================
         if ($action === 'list') {
 
             requireAdmin();
@@ -115,7 +90,6 @@
 
             respond(["status" => "success", "homes" => $homes]);
         }
-
 
         fail("Unknown action.");
 

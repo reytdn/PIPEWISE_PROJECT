@@ -1,18 +1,5 @@
 <?php
 
-    // ==================================================
-    // search_users.php
-    // Search box for the administrator: finds residents by
-    // name, username, email or barangay, and returns where
-    // their home marker is. Feeds the suggestion box on the map.
-    //
-    // Receives:  POST (or GET) q
-    // Returns:   JSON  { status, results: [ { id, name, username,
-    //                    address, hasHome, lat, lng } ] }
-    //
-    // Administrator only.
-    // ==================================================
-
     require __DIR__ . '/common.php';
 
     try {
@@ -22,7 +9,6 @@
 
         $q = input('q');
 
-        // Nothing typed yet, nothing to suggest
         if ($q === '') {
             respond(["status" => "success", "results" => []]);
         }
@@ -31,10 +17,8 @@
             $q = function_exists('mb_substr') ? mb_substr($q, 0, 60) : substr($q, 0, 60);
         }
 
-        // Typed % and _ must be treated as normal letters, not wildcards
         $like = '%' . addcslashes($q, '%_\\') . '%';
 
-        // People who already set a home are listed first
         $stmt = $conn->prepare(
             "SELECT u.id, u.name, u.username, u.address, h.lat, h.lng
              FROM user_login u

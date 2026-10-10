@@ -1,28 +1,19 @@
-/* ==========================================================
-   PipeSense: base.css
-   Shared by login.html and index.html: design tokens, reset,
-   buttons, form controls and the Resident/Admin switch.
-   ========================================================== */
-
 :root {
-  /* Base palette */
-  --ink: #10303b;          /* deep teal-ink: header, text */
+  --ink: #10303b;
   --ink-soft: #1b4452;
-  --paper: #f2f6f5;        /* cool off-white background */
+  --paper: #f2f6f5;
   --surface: #ffffff;
   --line: #d3dedc;
   --muted: #587079;
-  --aqua: #5cc8d7;         /* accent on dark */
-  --water: #1b6f8f;        /* primary action on light */
+  --aqua: #5cc8d7;
+  --water: #1b6f8f;
   --water-dark: #0e4c66;
 
-  /* Report types */
   --t-interruption: #c9443b;
   --t-maintenance: #d98e04;
   --t-pressure: #2f78a8;
   --t-quality: #7a5ba6;
 
-  /* Statuses */
   --s-reported: #587079;
   --s-scheduled: #2f78a8;
   --s-ongoing: #c9443b;
@@ -85,8 +76,6 @@ code {
   padding: 1px 5px;
   border-radius: 4px;
 }
-
-/* ---------- Buttons ---------- */
 
 .btn {
   display: inline-flex;
@@ -215,9 +204,6 @@ input:focus, select:focus, textarea:focus {
   * { transition: none !important; animation: none !important; }
 }
 
-/* ---------- SweetAlert2 ---------- */
-
-/* The login gate uses z-index 3000, so popups must sit above it */
 .swal2-container { z-index: 10000 !important; }
 
 .swal2-popup {
@@ -229,8 +215,6 @@ input:focus, select:focus, textarea:focus {
 .swal2-styled.swal2-confirm { background-color: var(--water); border-radius: var(--radius); }
 .swal2-styled.swal2-cancel { border-radius: var(--radius); }
 .swal2-toast { font-family: var(--font-body); }
-
-/* ---------- Start-up error banner ---------- */
 
 .boot-error {
   position: fixed;

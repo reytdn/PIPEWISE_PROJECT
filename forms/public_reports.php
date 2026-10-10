@@ -1,17 +1,5 @@
 <?php
 
-    // ==================================================
-    // public_reports.php
-    // Reports shown on the public overview page (index.html).
-    // No login needed, so it only returns what is safe to show:
-    //   - official announcements and verified community reports
-    //   - nothing that is already resolved
-    //   - no names or account ids of the people who posted
-    //
-    // Receives:  GET (nothing)
-    // Returns:   JSON  { status, reports: [ ... ] }
-    // ==================================================
-
     require __DIR__ . '/common.php';
 
     try {

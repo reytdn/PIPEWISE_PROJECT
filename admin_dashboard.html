@@ -12,7 +12,6 @@
   <link rel="stylesheet" href="css/base.css?v=8">
   <link rel="stylesheet" href="css/style.css?v=8">
   <script>
-    // Administrator only: no login -> login page, resident -> resident dashboard.
     (function () {
       try {
         var u = JSON.parse(sessionStorage.getItem('pipesense.user'));
@@ -36,7 +35,6 @@
     }, true);
   </script>
 
-  <!-- ============ Top bar ============ -->
   <header class="topbar">
     <a class="brand" href="admin_dashboard.html" aria-label="PipeSense admin home">
       <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
@@ -55,18 +53,16 @@
     </div>
   </header>
 
-  <!-- ============ App body ============ -->
   <main class="app">
 
-    <!-- Side panel -->
     <aside class="panel" id="panel">
       <div class="tabs" role="tablist" aria-label="Panel sections">
         <button type="button" role="tab" class="tab is-active" id="tabDashboard" aria-selected="true" aria-controls="viewDashboard">Dashboard</button>
         <button type="button" role="tab" class="tab" id="tabReports" aria-selected="false" aria-controls="viewReports">Reports</button>
         <button type="button" role="tab" class="tab" id="tabInsights" aria-selected="false" aria-controls="viewInsights">Insights</button>
+        <button type="button" role="tab" class="tab" id="tabHistory" aria-selected="false" aria-controls="viewHistory">History</button>
       </div>
 
-      <!-- Reports list -->
       <section class="view" id="viewReports" role="tabpanel" aria-labelledby="tabReports">
         <div class="filters">
           <label class="search">
@@ -91,6 +87,17 @@
               </select>
             </label>
           </div>
+          <div class="filter-row filter-row-2">
+            <label>
+              <span class="sr-only">Barangay</span>
+              <select id="fArea"></select>
+            </label>
+            <span></span>
+          </div>
+          <div class="filter-row filter-row-2">
+            <label class="date-field"><span>From</span><input type="date" id="fFrom"></label>
+            <label class="date-field"><span>To</span><input type="date" id="fTo"></label>
+          </div>
           <div class="result-meta">
             <span id="resultCount" aria-live="polite"></span>
             <button type="button" class="link-btn" id="clearFilters" hidden>Clear filters</button>
@@ -99,22 +106,21 @@
         <ul class="report-list" id="reportList"></ul>
       </section>
 
-      <!-- Report detail -->
       <section class="view" id="viewDetail" role="region" aria-label="Report details" hidden></section>
 
-      <!-- Insights -->
       <section class="view" id="viewInsights" role="tabpanel" aria-labelledby="tabInsights" hidden></section>
 
-      <!-- Dashboard (resident or admin, depending on who is logged in) -->
+      <section class="view" id="viewHistory" role="tabpanel" aria-labelledby="tabHistory" hidden></section>
+
       <section class="view" id="viewDashboard" role="tabpanel" aria-labelledby="tabDashboard" hidden></section>
     </aside>
 
-    <!-- Map -->
     <section class="mapwrap" aria-label="Water service map">
       <div id="map"></div>
 
       <div class="map-tools">
         <button type="button" class="chip-btn" id="toggleHotspots" aria-pressed="false">Show frequently affected areas</button>
+        <button type="button" class="chip-btn" id="btnPosts">All posts</button>
         <button type="button" class="chip-btn" id="btnLocate">Find my location</button>
       </div>
 
@@ -129,7 +135,6 @@
     </section>
   </main>
 
-  <!-- ============ Report dialog ============ -->
   <dialog id="reportDialog" aria-labelledby="reportTitle">
     <div class="dialog-head">
       <h2 id="reportTitle">Report an issue</h2>
@@ -171,6 +176,11 @@
         <select name="status" id="rStatus"></select>
       </label>
 
+      <label class="check" id="codeRedField" hidden>
+        <input type="checkbox" id="rCodeRed" name="codeRed">
+        <span><strong>Code red.</strong> Email every resident whose home is within 1 km of this report (or inside its coverage area).</span>
+      </label>
+
       <fieldset class="official-box" id="officialBox" hidden>
         <legend>Official announcement</legend>
         <label class="check">
@@ -186,6 +196,22 @@
             <span>Ends</span>
             <input type="datetime-local" name="endsAt" id="rEnds">
           </label>
+        </div>
+      <div class="field" id="radiusField">
+          <span>Coverage area</span>
+          <div class="check-row">
+            <label class="check"><input type="radio" name="geoType" id="rGeoCircle" value="circle" checked><span>Circle around the pin</span></label>
+            <label class="check"><input type="radio" name="geoType" id="rGeoPolygon" value="polygon"><span>Custom area drawn on the map</span></label>
+          </div>
+          <div id="circleRow">
+            <input type="number" name="radius" id="rRadius" min="100" max="10000" step="50" value="1000" aria-label="Coverage radius in meters">
+            <small>Radius in meters (100 to 10000).</small>
+          </div>
+          <div id="polygonRow" class="geo-row" hidden>
+            <button type="button" class="btn btn-small" id="btnDrawArea">Draw or edit area on the map</button>
+            <small id="geoSummary">No area drawn yet.</small>
+          </div>
+          <small id="geoAffected" class="geo-affected"></small>
         </div>
       </fieldset>
 
@@ -207,6 +233,6 @@
       b.hidden = false;
     }
   </script>
-  <script src="js/map.js?v=8"></script>
+  <script src="js/map.js?v=9"></script>
 </body>
 </html>

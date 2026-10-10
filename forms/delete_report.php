@@ -1,17 +1,5 @@
 <?php
 
-    // ==================================================
-    // delete_report.php
-    // Deletes one report from the database.
-    //
-    // Receives:  POST id   (for example "r12" or "12")
-    // Returns:   JSON  { status, message }
-    //
-    // Who can delete:
-    //   - the administrator: any report
-    //   - a resident: only the reports they posted themselves
-    // ==================================================
-
     require __DIR__ . '/common.php';
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -24,13 +12,10 @@
         $me   = actor();
         $id   = reportId(input('id'));
 
-
-        // ----------------------------------------------
-        // DOES THE REPORT EXIST, AND WHO POSTED IT?
-        // ----------------------------------------------
         $authorId = null;
+        $delTitle = '';
 
-        $stmt = $conn->prepare("SELECT author_id FROM reports WHERE id = ?");
+        $stmt = $conn->prepare("SELECT author_id, title FROM reports WHERE id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
         $stmt->store_result();
@@ -40,26 +25,30 @@
             fail("That report no longer exists.", 404);
         }
 
-        $stmt->bind_result($authorId);
+        $stmt->bind_result($authorId, $delTitle);
         $stmt->fetch();
         $stmt->close();
 
-
-        // ----------------------------------------------
-        // ARE THEY ALLOWED TO DELETE IT?
-        // ----------------------------------------------
         if ($me['role'] !== 'admin' && $authorId !== $me['key']) {
             fail("You can only delete your own reports.", 403);
         }
 
+        $stmt = $conn->prepare("DELETE FROM notifications WHERE report_id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $stmt->close();
 
-        // ----------------------------------------------
-        // DELETE IT
-        // ----------------------------------------------
+        $stmt = $conn->prepare("DELETE FROM report_emails WHERE report_id = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $stmt->close();
+
         $stmt = $conn->prepare("DELETE FROM reports WHERE id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
         $stmt->close();
+
+        logReport($conn, $id, $delTitle, 'deleted', null, null, $me['name'], $me['key']);
 
         respond([
             "status"  => "success",

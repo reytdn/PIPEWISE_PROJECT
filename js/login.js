@@ -1,21 +1,14 @@
-/* ==========================================================
-   PipeSense: login.js
-   Login and sign-up for residents, login for the administrator.
-   Talks to forms/login_user.php and login_admin.php.
-   All messages use SweetAlert2.
-   ========================================================== */
 (() => {
   'use strict';
 
-  window.__pipesenseLoginReady = true;   // lets login.html confirm this file loaded
+  window.__pipesenseLoginReady = true;
 
   const ENDPOINTS = {
     user: 'forms/login_user.php',
-    register: 'forms/add_user.php',   // sign up is saved by add_user.php
+    register: 'forms/add_user.php',
     admin: 'forms/login_admin.php'
   };
 
-  // The 61 barangays of Bacolod City (same list as forms/add_user.php)
   const BARANGAYS = [
     'Alangilan', 'Alijis', 'Banago',
     ...Array.from({ length: 41 }, (_, i) => `Barangay ${i + 1}`),
@@ -23,24 +16,20 @@
     'Mansilingan', 'Montevista', 'Pahanocoy', 'Punta Taytay', 'Singcang-Airport',
     'Sum-ag', 'Taculing', 'Tangub', 'Villamonte', 'Vista Alegre'
   ];
-  const SESSION_KEY = 'pipesense.user';   // read by map.js
-  const HOME_USER = 'user_dashboard.html';    // resident dashboard (index.html is the public overview)
-  const HOME_ADMIN = 'admin_dashboard.html';  // administrator dashboard
+  const SESSION_KEY = 'pipesense.user';
+  const HOME_USER = 'user_dashboard.html';
+  const HOME_ADMIN = 'admin_dashboard.html';
 
   const homeFor = (user) => (user && user.role === 'admin' ? HOME_ADMIN : HOME_USER);
 
   const $ = (sel) => document.querySelector(sel);
 
-  // Already logged in on this tab: skip the login page
   try {
     const saved = sessionStorage.getItem(SESSION_KEY);
     if (saved) { location.replace(homeFor(JSON.parse(saved))); return; }
   } catch (e) {
-    // Unreadable saved login: clear it and stay on the login page
-    try { sessionStorage.removeItem(SESSION_KEY); } catch (_) { /* ignore */ }
+    try { sessionStorage.removeItem(SESSION_KEY); } catch (_) { }
   }
-
-  /* ---------- Helpers ---------- */
 
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -66,7 +55,6 @@
     const text = await res.text();
     try { return JSON.parse(text); }
     catch (e) {
-      // Usually a PHP error or a wrong path. Show the start of what came back.
       throw new Error('Unexpected reply from ' + url + ': ' + text.replace(/<[^>]*>/g, ' ').trim().slice(0, 160));
     }
   }
@@ -89,7 +77,7 @@
 
   function startSession(user) {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    sessionStorage.removeItem('pipesense.welcomed');   // map.js shows the welcome popup once per login
+    sessionStorage.removeItem('pipesense.welcomed');
     return Swal.fire({
       icon: 'success',
       title: user.role === 'admin' ? 'Welcome, administrator' : `Welcome, ${user.name.split(' ')[0]}`,
@@ -100,8 +88,6 @@
     }).then(() => location.replace(homeFor(user)));
   }
 
-  /* ---------- Address drop-down ---------- */
-
   const addressSelect = $('#signupAddress');
   if (addressSelect) {
     BARANGAYS.forEach((b) => {
@@ -111,8 +97,6 @@
       addressSelect.appendChild(o);
     });
   }
-
-  /* ---------- Screens ---------- */
 
   const forms = { login: $('#residentForm'), signup: $('#registerForm'), admin: $('#adminForm') };
 
@@ -135,8 +119,6 @@
     if (first) first.focus();
   }
 
-  /* ---------- Validation (client side; the server checks again) ---------- */
-
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const USER_RE = /^[A-Za-z0-9_.-]{3,30}$/;
 
@@ -152,8 +134,6 @@
     if (!EMAIL_RE.test(v.email)) problems.push('Enter a valid email address.');
     return problems;
   }
-
-  /* ---------- Handlers ---------- */
 
   async function onUserLogin(e) {
     e.preventDefault();
@@ -240,8 +220,6 @@
     }
   }
 
-  /* ---------- Init ---------- */
-
   if (!window.Swal) {
     document.body.insertAdjacentHTML('afterbegin',
       '<div class="boot-error" role="alert">SweetAlert2 did not load. Check your internet connection and reload.</div>');
@@ -256,6 +234,5 @@
   forms.admin.addEventListener('submit', onAdminLogin);
   forms.login.elements.username.focus();
 
-  // The Sign Up button on the overview page links to login.html#signup
   if (location.hash === '#signup') show('signup');
 })();

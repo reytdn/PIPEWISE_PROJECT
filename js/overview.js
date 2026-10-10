@@ -1,15 +1,9 @@
-/* ==========================================================
-   PipeSense: overview.js
-   The public first page (index.html). Read only: shows the
-   map preview, official advisories and verified reports.
-   Data comes from forms/public_reports.php (no login needed).
-   ========================================================== */
 (() => {
   'use strict';
 
   const ENDPOINT = 'forms/public_reports.php';
-  const SESSION_KEY = 'pipesense.user';       // set by login.js
-  const CENTER = [10.6713, 122.9511];         // Bacolod City
+  const SESSION_KEY = 'pipesense.user';
+  const CENTER = [10.6713, 122.9511];
   const REFRESH_MS = 60000;
 
   const TYPES = {
@@ -28,17 +22,13 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 
-  /* ---------- Already logged in? Offer the dashboard instead ---------- */
-
   try {
     const u = JSON.parse(sessionStorage.getItem(SESSION_KEY));
     if (u && u.role) {
       const href = u.role === 'admin' ? 'admin_dashboard.html' : 'user_dashboard.html';
       $('#publicActions').innerHTML = `<a class="btn btn-accent" href="${href}">Open my dashboard</a>`;
     }
-  } catch (e) { /* not logged in */ }
-
-  /* ---------- Map ---------- */
+  } catch (e) { }
 
   const map = L.map('map', { zoomControl: true }).setView(CENTER, 13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -55,8 +45,6 @@
     Object.values(TYPES).map((t) =>
       `<div class="legend-item"><span class="legend-swatch" style="--c:${t.color}"></span>${t.label}</div>`
     ).join('');
-
-  /* ---------- Helpers ---------- */
 
   const fmt = (ms) => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
@@ -120,8 +108,6 @@
   const emptyItem = (title, text) =>
     `<li class="empty"><h3>${esc(title)}</h3><p>${esc(text)}</p></li>`;
 
-  /* ---------- Draw ---------- */
-
   let first = true;
 
   function render(reports) {
@@ -171,8 +157,6 @@
     $('#repCount').textContent = '';
   }
 
-  /* ---------- Load ---------- */
-
   let lastSignature = '';
 
   async function load() {
@@ -190,7 +174,6 @@
         render(data.reports);
       }
     } catch (err) {
-      // Keep what is already on screen if a refresh fails
       if (first) {
         showProblem(err instanceof TypeError
           ? 'Cannot reach the server. Open this page from http://localhost/... with Apache and MySQL running in Laragon.'
@@ -199,8 +182,6 @@
       }
     }
   }
-
-  /* ---------- Clicking a report centers the map on it ---------- */
 
   $('#panel').addEventListener('click', (e) => {
     const btn = e.target.closest('.report-card');

@@ -13,8 +13,6 @@
 </head>
 <body>
   <script>
-    // Shows a red banner when something stops the page from working,
-    // so you see the reason instead of buttons that silently do nothing.
     function pipesenseBanner(html) {
       var b = document.createElement('div');
       b.className = 'boot-error';
@@ -28,7 +26,6 @@
     }, true);
   </script>
 
-  <!-- ============ Login gate (shown before the dashboard) ============ -->
   <section class="gate" id="gate" aria-labelledby="gateTitle">
     <div class="gate-art">
       <div class="gate-brand">
@@ -57,7 +54,6 @@
           <button type="button" class="seg-btn" id="segAdmin" role="tab" aria-selected="false">Administrator</button>
         </div>
 
-        <!-- Resident: log in -->
         <form id="residentForm" class="form" novalidate>
           <label class="field">
             <span>Username or email</span>
@@ -72,7 +68,6 @@
           <button type="button" class="btn btn-block" id="showSignup">Sign Up</button>
         </form>
 
-        <!-- Resident: sign up -->
         <form id="registerForm" class="form" novalidate hidden>
           <label class="field">
             <span>Username</span>
@@ -103,7 +98,6 @@
           <button type="button" class="btn btn-quiet btn-block" id="backToLogin">Back to log in</button>
         </form>
 
-        <!-- Administrator: log in -->
         <form id="adminForm" class="form" novalidate hidden>
           <label class="field">
             <span>Username</span>

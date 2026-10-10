@@ -1,44 +1,20 @@
 <?php
 
-    // ==================================================
-    // reports.php
-    // Lists, creates and updates water service reports.
-    // (Deleting is done by delete_report.php)
-    //
-    // Receives:  POST action = list | create | update
-    //   create:  type, area, title, desc, lat, lng
-    //            admin only: status, official, startsAt, endsAt
-    //   update:  id + any of the fields above, or verified (admin only)
-    // Returns:   JSON  { status, message?, report? | reports? }
-    //
-    // Rules (checked here, not only in the browser):
-    //   - every logged in user can list all reports
-    //   - a resident can only create "community" reports and
-    //     can only change their own
-    //   - only the administrator can verify, post official
-    //     announcements, or change any report
-    // ==================================================
-
     require __DIR__ . '/common.php';
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         fail("Invalid request.", 405);
     }
 
-
-    // --------------------------------------------------
-    // HOW A REPORT IS READ FROM THE DATABASE
-    // Dates are sent to JavaScript as milliseconds
-    // --------------------------------------------------
     const REPORT_SELECT =
         "SELECT id, type, status, title, description, area, lat, lng, source, verified,
-                author_id, author,
+                author_id, author, radius_m, geofence, code_red,
                 UNIX_TIMESTAMP(created_at) * 1000 AS created_ms,
+                UNIX_TIMESTAMP(resolved_at) * 1000 AS resolved_ms,
                 UNIX_TIMESTAMP(starts_at)  * 1000 AS starts_ms,
                 UNIX_TIMESTAMP(ends_at)    * 1000 AS ends_ms
          FROM reports";
 
-    // One database row -> the object map.js expects
     function reportOut($r)
     {
         return [
@@ -54,6 +30,10 @@
             "verified"  => (int) $r['verified'] === 1,
             "authorId"  => $r['author_id'],
             "author"    => $r['author'],
+            "radius"    => (int) $r['radius_m'],
+            "geofence"  => geofenceOf($r),
+            "codeRed"   => (int) $r['code_red'] === 1,
+            "resolvedAt" => $r['resolved_ms'] !== null ? (int) $r['resolved_ms'] : null,
             "createdAt" => (int) $r['created_ms'],
             "startsAt"  => $r['starts_ms'] !== null ? (int) $r['starts_ms'] : null,
             "endsAt"    => $r['ends_ms']   !== null ? (int) $r['ends_ms']   : null
@@ -71,8 +51,6 @@
         return $row ? $row : null;
     }
 
-    // Milliseconds from JavaScript -> whole seconds. '' = no date (NULL).
-    // Returns false when the value is not a number.
     function msToSeconds($value)
     {
         if ($value === '' || $value === null) return null;
@@ -80,6 +58,53 @@
         return (int) round(((float) $value) / 1000);
     }
 
+    function logChanges($conn, $old, $new, $me)
+    {
+        $id    = (int) $old['id'];
+        $title = $new['title'];
+        $who   = $me['name'];
+        $key   = $me['key'];
+
+        if ($old['status'] !== $new['status']) {
+            logReport($conn, $id, $title, 'status', $old['status'], $new['status'], $who, $key);
+
+            if ($new['status'] === 'resolved') {
+                $stmt = $conn->prepare("UPDATE reports SET resolved_at = NOW() WHERE id = ?");
+            } elseif ($old['status'] === 'resolved') {
+                $stmt = $conn->prepare("UPDATE reports SET resolved_at = NULL WHERE id = ?");
+            } else {
+                $stmt = null;
+            }
+            if ($stmt) {
+                $stmt->bind_param("i", $id);
+                $stmt->execute();
+                $stmt->close();
+            }
+        }
+
+        if ((int) $old['verified'] !== (int) $new['verified']) {
+            logReport($conn, $id, $title, (int) $new['verified'] === 1 ? 'verified' : 'unverified', null, null, $who, $key);
+        }
+
+        if ($old['source'] !== $new['source']) {
+            logReport($conn, $id, $title, 'official', $old['source'], $new['source'], $who, $key);
+        }
+
+        if (coverageText($old) !== coverageText($new) || $old['geofence'] !== $new['geofence']) {
+            logReport($conn, $id, $title, 'geofence', coverageText($old), coverageText($new), $who, $key);
+        }
+
+        if ((int) $old['code_red'] !== (int) $new['code_red']) {
+            logReport($conn, $id, $title, 'codered', null, (string) (int) $new['code_red'], $who, $key);
+        }
+
+        foreach (['type', 'title', 'description', 'area', 'lat', 'lng'] as $col) {
+            if ((string) $old[$col] !== (string) $new[$col]) {
+                logReport($conn, $id, $title, 'edited', null, null, $who, $key);
+                break;
+            }
+        }
+    }
 
     try {
 
@@ -88,10 +113,6 @@
         $admin  = $me['role'] === 'admin';
         $action = input('action');
 
-
-        // ==============================================
-        // LIST: every report, newest first
-        // ==============================================
         if ($action === 'list') {
 
             $reports = [];
@@ -103,10 +124,6 @@
             respond(["status" => "success", "reports" => $reports]);
         }
 
-
-        // ==============================================
-        // CREATE
-        // ==============================================
         if ($action === 'create') {
 
             $type  = input('type');
@@ -125,10 +142,11 @@
             if ($area === '' || textLen($area) > 60)    $errors[] = "Choose the barangay.";
             if (!validPoint($lat, $lng))                $errors[] = "The pinned location must be inside Bacolod City.";
 
-            // Residents always start as "reported". Only the admin picks a status
-            // and can post an official announcement.
             $status   = 'reported';
             $official = false;
+            $radius   = DEFAULT_COVERAGE_M;
+            $geofence = null;
+            $codeRed  = ($admin && input('codeRed') === '1') ? 1 : 0;
             $startsAt = null;
             $endsAt   = null;
 
@@ -138,6 +156,8 @@
 
                 $official = input('official') === '1';
                 if ($official) {
+                    $radius   = parseRadius(input('radius'), $errors);
+                    $geofence = parseGeofence(input('geofence'), $errors);
                     $startsAt = msToSeconds(input('startsAt'));
                     $endsAt   = msToSeconds(input('endsAt'));
                     if ($startsAt === false || $endsAt === false) {
@@ -162,32 +182,30 @@
             $stmt = $conn->prepare(
                 "INSERT INTO reports
                     (type, status, title, description, area, lat, lng,
-                     source, verified, author_id, author, starts_at, ends_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?))"
+                     source, verified, author_id, author, starts_at, ends_at, radius_m, geofence, code_red)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, ?, ?)"
             );
 
-            // s = string, d = decimal number, i = whole number
             $stmt->bind_param(
-                "sssssddsissii",
+                "sssssddsissiiisi",
                 $type, $status, $title, $desc, $area, $latF, $lngF,
-                $source, $verified, $authorKey, $authorName, $startsAt, $endsAt
+                $source, $verified, $authorKey, $authorName, $startsAt, $endsAt, $radius, $geofence, $codeRed
             );
             $stmt->execute();
             $newId = $conn->insert_id;
+            $notified = ($official || $codeRed === 1) ? notifyAffected($conn, $newId) : 0;
+            logReport($conn, $newId, $title, 'created', null, $official ? 'official, ' . $status : $status, $authorName, $authorKey);
             $stmt->close();
 
             respond([
                 "status"  => "success",
-                "message" => $official ? "Announcement posted." : "Report submitted. An admin can verify it.",
+                "message" => $official ? "Announcement posted." . notifySummary($notified)
+                          : ($codeRed === 1 ? "Code red report posted." . notifySummary($notified) : "Report submitted. An admin can verify it."),
+                "notified" => $notified,
                 "report"  => reportOut(fetchReport($conn, $newId))
             ]);
         }
 
-
-        // ==============================================
-        // UPDATE
-        // Only the fields that are sent get changed.
-        // ==============================================
         if ($action === 'update') {
 
             $id  = reportId(input('id'));
@@ -202,7 +220,7 @@
                 fail("You can only change your own reports.", 403);
             }
 
-            $set            = [];      // each item: [ "column = ?", "type letter", value ]
+            $set            = [];
             $errors         = [];
             $contentChanged = false;
 
@@ -248,6 +266,10 @@
                 else { $set[] = ["status = ?", "s", $v]; }
             }
 
+            if ($admin && hasInput('codeRed')) {
+                $set[] = ["code_red = ?", "i", input('codeRed') === '1' ? 1 : 0];
+            }
+
             $verifiedSent = hasInput('verified');
             if ($verifiedSent) {
                 if (!$admin) fail("Only the administrator can verify reports.", 403);
@@ -268,13 +290,21 @@
                     $set[] = ["source = ?", "s", $official ? 'official' : 'community'];
                     $set[] = ["starts_at = FROM_UNIXTIME(?)", "i", $startsAt];
                     $set[] = ["ends_at = FROM_UNIXTIME(?)", "i", $endsAt];
+                    if ($official && hasInput('geofence')) {
+                        $set[] = ["geofence = ?", "s", parseGeofence(input('geofence'), $errors)];
+                    }
+                    if (!$official) {
+                        $set[] = ["geofence = ?", "s", null];
+                    }
+                    if ($official && hasInput('radius')) {
+                        $set[] = ["radius_m = ?", "i", parseRadius(input('radius'), $errors)];
+                    }
                     if ($official && !$verifiedSent) {
                         $set[] = ["verified = ?", "i", 1];
                     }
                 }
 
             } elseif (!$admin && $contentChanged && $row['source'] === 'community') {
-                // A resident who edits a report needs the admin to verify it again
                 $set[] = ["verified = ?", "i", 0];
             }
 
@@ -285,7 +315,6 @@
                 fail("Nothing to change.");
             }
 
-            // Build: UPDATE reports SET a = ?, b = ? WHERE id = ?
             $sql    = "UPDATE reports SET " . implode(", ", array_column($set, 0)) . " WHERE id = ?";
             $types  = implode("", array_column($set, 1)) . "i";
             $values = array_column($set, 2);
@@ -296,13 +325,68 @@
             $stmt->execute();
             $stmt->close();
 
+            $after = fetchReport($conn, $id);
+            logChanges($conn, $row, $after, $me);
+            $notified = $admin ? notifyAffected($conn, $id) : 0;
+
+            $justVerified = $admin && (int) $row['verified'] === 0 && (int) $after['verified'] === 1;
+            $emailed      = $justVerified ? emailVerifiedReport($conn, $id) : 0;
+
             respond([
                 "status"  => "success",
-                "message" => "Changes saved.",
+                "message" => ($justVerified ? "Report verified." . emailedSummary($emailed) : "Changes saved.") . notifySummary($notified),
+                "emailed" => $emailed,
                 "report"  => reportOut(fetchReport($conn, $id))
             ]);
         }
 
+        if ($action === 'notify') {
+
+            requireAdmin();
+            $id  = reportId(input('id'));
+            $row = fetchReport($conn, $id);
+
+            if (!$row) {
+                fail("That report no longer exists.", 404);
+            }
+            $active = ($row['source'] === 'official' && in_array($row['status'], ['scheduled', 'ongoing'], true))
+                    || ((int) $row['code_red'] === 1 && $row['status'] !== 'resolved');
+            if (!$active) {
+                fail("Only scheduled or ongoing announcements and open code red reports send notices.");
+            }
+
+            $notified = notifyAffected($conn, $id, null, true);
+            logReport($conn, $id, $row['title'], 'notified', null, (string) $notified, $me['name'], $me['key']);
+
+            respond([
+                "status"   => "success",
+                "message"  => $notified > 0 ? "Notice sent." . notifySummary($notified) : "No resident has a home inside this area.",
+                "notified" => $notified
+            ]);
+        }
+
+        if ($action === 'email_verified') {
+
+            requireAdmin();
+            $id  = reportId(input('id'));
+            $row = fetchReport($conn, $id);
+
+            if (!$row) {
+                fail("That report no longer exists.", 404);
+            }
+            if ((int) $row['verified'] !== 1 || $row['status'] === 'resolved') {
+                fail("Only open, verified reports send verification emails.");
+            }
+
+            $emailed = emailVerifiedReport($conn, $id);
+            logReport($conn, $id, $row['title'], 'notified', null, (string) $emailed, $me['name'], $me['key']);
+
+            respond([
+                "status"  => "success",
+                "message" => $emailed > 0 ? "Emails sent." . emailedSummary($emailed) : trim("No new emails were needed." . notifySummary(0)),
+                "emailed" => $emailed
+            ]);
+        }
 
         fail("Unknown action.");
 

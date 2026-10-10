@@ -12,7 +12,6 @@
   <link rel="stylesheet" href="css/base.css?v=8">
   <link rel="stylesheet" href="css/style.css?v=8">
   <script>
-    // Residents only: no login -> login page, administrator -> admin dashboard.
     (function () {
       try {
         var u = JSON.parse(sessionStorage.getItem('pipesense.user'));
@@ -36,7 +35,6 @@
     }, true);
   </script>
 
-  <!-- ============ Top bar ============ -->
   <header class="topbar">
     <a class="brand" href="user_dashboard.html" aria-label="PipeSense home">
       <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
@@ -55,10 +53,8 @@
     </div>
   </header>
 
-  <!-- ============ App body ============ -->
   <main class="app">
 
-    <!-- Side panel -->
     <aside class="panel" id="panel">
       <div class="tabs" role="tablist" aria-label="Panel sections">
         <button type="button" role="tab" class="tab is-active" id="tabDashboard" aria-selected="true" aria-controls="viewDashboard">Dashboard</button>
@@ -66,7 +62,6 @@
         <button type="button" role="tab" class="tab" id="tabInsights" aria-selected="false" aria-controls="viewInsights">Insights</button>
       </div>
 
-      <!-- Reports list -->
       <section class="view" id="viewReports" role="tabpanel" aria-labelledby="tabReports">
         <div class="filters">
           <label class="search">
@@ -91,6 +86,24 @@
               </select>
             </label>
           </div>
+          <div class="filter-row filter-row-2">
+            <label>
+              <span class="sr-only">Whose reports</span>
+              <select id="fScope">
+                <option value="">All reports</option>
+                <option value="mine">My reports</option>
+                <option value="others">Other users' reports</option>
+              </select>
+            </label>
+            <label>
+              <span class="sr-only">Barangay</span>
+              <select id="fArea"></select>
+            </label>
+          </div>
+          <div class="filter-row filter-row-2">
+            <label class="date-field"><span>From</span><input type="date" id="fFrom"></label>
+            <label class="date-field"><span>To</span><input type="date" id="fTo"></label>
+          </div>
           <div class="result-meta">
             <span id="resultCount" aria-live="polite"></span>
             <button type="button" class="link-btn" id="clearFilters" hidden>Clear filters</button>
@@ -99,22 +112,19 @@
         <ul class="report-list" id="reportList"></ul>
       </section>
 
-      <!-- Report detail -->
       <section class="view" id="viewDetail" role="region" aria-label="Report details" hidden></section>
 
-      <!-- Insights -->
       <section class="view" id="viewInsights" role="tabpanel" aria-labelledby="tabInsights" hidden></section>
 
-      <!-- Dashboard (resident or admin, depending on who is logged in) -->
       <section class="view" id="viewDashboard" role="tabpanel" aria-labelledby="tabDashboard" hidden></section>
     </aside>
 
-    <!-- Map -->
     <section class="mapwrap" aria-label="Water service map">
       <div id="map"></div>
 
       <div class="map-tools">
         <button type="button" class="chip-btn" id="toggleHotspots" aria-pressed="false">Show frequently affected areas</button>
+        <button type="button" class="chip-btn" id="btnPosts">All posts</button>
         <button type="button" class="chip-btn" id="btnLocate">Find my location</button>
       </div>
 
@@ -129,7 +139,6 @@
     </section>
   </main>
 
-  <!-- ============ Report dialog ============ -->
   <dialog id="reportDialog" aria-labelledby="reportTitle">
     <div class="dialog-head">
       <h2 id="reportTitle">Report an issue</h2>
@@ -187,6 +196,11 @@
             <input type="datetime-local" name="endsAt" id="rEnds">
           </label>
         </div>
+      <label class="field" id="radiusField">
+          <span>Coverage radius (meters)</span>
+          <input type="number" name="radius" id="rRadius" min="100" max="10000" step="50" value="1000">
+          <small>Residents whose home marker is inside this circle get a system notification and an email.</small>
+        </label>
       </fieldset>
 
       <p class="form-error" id="reportError" role="alert" hidden></p>
@@ -208,6 +222,6 @@
       b.hidden = false;
     }
   </script>
-  <script src="js/map.js?v=8"></script>
+  <script src="js/map.js?v=9"></script>
 </body>
 </html>
