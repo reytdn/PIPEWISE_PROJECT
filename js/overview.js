@@ -2,6 +2,7 @@
   'use strict';
 
   const ENDPOINT = 'forms/public_reports.php';
+  const AREAS = 'forms/area_counts.php';
   const SESSION_KEY = 'pipesense.user';
   const CENTER = [10.6713, 122.9511];
   const REFRESH_MS = 60000;
@@ -13,24 +14,29 @@
     quality:      { label: 'Water quality',      color: '#7a5ba6' }
   };
   const STATUSES = { reported: 'Reported', scheduled: 'Scheduled', ongoing: 'Ongoing', resolved: 'Resolved' };
-
-  const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" ' +
-    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                  'August', 'September', 'October', 'November', 'December'];
+  const YEARS_BACK = 5;   // how many years before this one show in the list
 
   const $ = (sel) => document.querySelector(sel);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
+  const pad = (n) => (n < 10 ? '0' : '') + n;
+  const ymd = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 
   try {
     const u = JSON.parse(sessionStorage.getItem(SESSION_KEY));
     if (u && u.role) {
       const href = u.role === 'admin' ? 'admin_dashboard.html' : 'user_dashboard.html';
       $('#publicActions').innerHTML = `<a class="btn btn-accent" href="${href}">Open my dashboard</a>`;
+      $('#btnMakeReport').setAttribute('href', href);
     }
   } catch (e) { }
 
-  const map = L.map('map', { zoomControl: true }).setView(CENTER, 13);
+  // ---------- map ----------
+  const map = L.map('map', { zoomControl: false }).setView(CENTER, 13);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
   const streetTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -59,43 +65,52 @@
   window.addEventListener('resize', () => map.invalidateSize());
   setTimeout(() => map.invalidateSize(), 300);
 
-  const markerLayer = L.layerGroup().addTo(map);
+  // zoomed out: reports group together, coloured by how many reports the group holds;
+  // from zoom 16 every report shows as its own pin
+  let totalReports = 0;
+  function frequencyLevel(count) {
+    const share = count / Math.max(totalReports, 1);
+    if (share >= 0.50) return 5;
+    if (share >= 0.30) return 4;
+    if (share >= 0.15) return 3;
+    if (share >= 0.05) return 2;
+    return 1;
+  }
+  const markerLayer = L.markerClusterGroup({
+    maxClusterRadius: 60,
+    disableClusteringAtZoom: 16,
+    showCoverageOnHover: false,
+    iconCreateFunction: (cluster) => {
+      const n = cluster.getChildCount();
+      return L.divIcon({
+        className: 'cluster-wrap',
+        html: `<div class="cluster f${frequencyLevel(n)}"><span>${n}</span></div>`,
+        iconSize: [40, 40]
+      });
+    }
+  }).addTo(map);
+  const areaLayer = L.layerGroup().addTo(map);
   const markers = new Map();
 
-  $('#legend').innerHTML = '<div class="legend-title">Report types</div>' +
-    Object.values(TYPES).map((t) =>
-      `<div class="legend-item"><span class="legend-swatch" style="--c:${t.color}"></span>${t.label}</div>`
-    ).join('');
+  $('#legend').innerHTML = `
+    <h3>Legend</h3>
+    <p class="legend-note">Grouped reports</p>
+    <div class="freq-bar"><span class="f1"></span><span class="f2"></span><span class="f3"></span><span class="f4"></span><span class="f5"></span></div>
+    <div class="freq-ends"><span>Fewer</span><span>More</span></div>
+    <div class="legend-sep"></div>
+    <h3>Report type</h3>
+    ${Object.entries(TYPES).map(([k, t]) =>
+      `<div class="legend-item">${PipeMarkers.legend(k)}${t.label}</div>`).join('')}
+    <div class="legend-sep"></div>
+    <div class="legend-item"><span class="legend-swatch dashed"></span>Area affected</div>`;
 
   const fmt = (ms) => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-
-  function timeAgo(ms) {
-    const s = Math.max(1, Math.round((Date.now() - ms) / 1000));
-    if (s < 60) return 'just now';
-    const m = Math.round(s / 60);
-    if (m < 60) return `${m} min ago`;
-    const h = Math.round(m / 60);
-    if (h < 24) return `${h} hr ago`;
-    const d = Math.round(h / 24);
-    return `${d} day${d === 1 ? '' : 's'} ago`;
-  }
 
   function schedule(r) {
     if (r.startsAt && r.endsAt) return `${fmt(r.startsAt)} to ${fmt(r.endsAt)}`;
     if (r.startsAt) return `From ${fmt(r.startsAt)}`;
     if (r.endsAt) return `Until ${fmt(r.endsAt)}`;
     return '';
-  }
-
-  function pinIcon(r) {
-    const t = TYPES[r.type] || { color: '#587079' };
-    return L.divIcon({
-      className: 'pin-wrap',
-      html: `<div class="pin is-verified st-${esc(r.status)}" style="--c:${t.color}"><span>${CHECK_SVG}</span></div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 28],
-      popupAnchor: [0, -28]
-    });
   }
 
   function popupHTML(r) {
@@ -105,76 +120,43 @@
       ? `<img class="popup-photo" src="${esc(r.photo)}" alt="Photo attached to this report" loading="lazy">`
       : '';
     return photo + `<div class="popup-title">${esc(r.title)}</div>` +
-      `<div class="popup-sub">${esc(t.label)} &middot; ${esc(r.area)} &middot; ${esc(STATUSES[r.status] || r.status)}</div>` +
+      `<div class="popup-sub">${esc(t.label)} &middot; ${esc(STATUSES[r.status] || r.status)}</div>` +
       (when ? `<div class="popup-sub">${esc(when)}</div>` : '') +
       (r.desc ? `<p style="margin:8px 0 0;max-width:240px">${esc(r.desc)}</p>` : '');
   }
 
-  function card(r) {
-    const t = TYPES[r.type] || { label: r.type, color: '#587079' };
-    const official = r.source === 'official';
-    const when = official ? schedule(r) : '';
-    return `
-      <li>
-        <button type="button" class="report-card" data-id="${esc(r.id)}" style="--c:${t.color}">
-          <h3>${esc(r.title)}</h3>
-          <div class="where">${esc(r.area)}${when ? ` &middot; ${esc(when)}` : ''}</div>
-          <div class="pills">
-            <span class="pill pill-status-${esc(r.status)}">${esc(STATUSES[r.status] || r.status)}</span>
-            <span class="pill" style="color:${t.color}">${esc(t.label)}</span>
-            ${official ? '<span class="pill pill-official">Official</span>' : '<span class="pill pill-verified">Verified</span>'}
-            <span class="time-ago">${esc(timeAgo(r.createdAt))}</span>
-          </div>
-        </button>
-      </li>`;
-  }
-
-  const emptyItem = (title, text) =>
-    `<li class="empty"><h3>${esc(title)}</h3><p>${esc(text)}</p></li>`;
-
   let first = true;
 
-  function render(reports) {
-    const advisories = reports.filter((r) => r.source === 'official');
-    const community = reports.filter((r) => r.source !== 'official');
-    const ongoing = reports.filter((r) => r.status === 'ongoing').length;
-    const areas = new Set(reports.map((r) => r.area)).size;
-
-    $('#ovStats').innerHTML = [
-      [advisories.length, 'Advisories'],
-      [community.length, 'Reports'],
-      [ongoing, 'Ongoing'],
-      [areas, 'Areas']
-    ].map(([n, label]) => `<div class="stat"><b>${n}</b><span>${label}</span></div>`).join('');
-
-    $('#advCount').textContent = advisories.length ? `(${advisories.length})` : '';
-    $('#repCount').textContent = community.length ? `(${community.length})` : '';
-
-    $('#advList').innerHTML = advisories.length
-      ? advisories.map(card).join('')
-      : emptyItem('No advisories', 'There are no official announcements right now.');
-    $('#repList').innerHTML = community.length
-      ? community.map(card).join('')
-      : emptyItem('No reports', 'No verified community reports right now.');
+  function render(reports, totals) {
+    $('#statTotal').textContent = totals ? totals.all : reports.length;
+    $('#statScheduled').textContent = totals ? totals.scheduledToday : '-';
 
     markerLayer.clearLayers();
+    areaLayer.clearLayers();
     markers.clear();
+    totalReports = reports.length;
+    const batch = [];
     reports.forEach((r) => {
       const t = TYPES[r.type] || { color: '#587079' };
-      const m = L.marker([r.lat, r.lng], { icon: pinIcon(r), title: r.title, riseOnHover: true });
+      const m = L.marker([r.lat, r.lng], {
+        icon: PipeMarkers.divIcon(TYPES[r.type] ? r.type : 'pressure', 'pin-img st-' + esc(r.status)),
+        title: r.title,
+        riseOnHover: true
+      });
       m.bindPopup(popupHTML(r), { closeButton: false, maxWidth: 260, minWidth: 180 });
       m.on('popupopen', (ev) => {
         const img = ev.popup.getElement() && ev.popup.getElement().querySelector('.popup-photo');
         if (img && !img.complete) img.addEventListener('load', () => ev.popup.update());
       });
-      m.addTo(markerLayer);
+      batch.push(m);
       const g = r.geofence;
       const cStyle = { color: t.color, weight: 1.5, dashArray: '4 6', fillColor: t.color, fillOpacity: 0.09, interactive: false };
-      if (g && g.type === 'rectangle' && g.bounds) L.rectangle(g.bounds, cStyle).addTo(markerLayer);
-      else if (g && g.type === 'polygon' && g.points.length >= 3) L.polygon(g.points, cStyle).addTo(markerLayer);
-      else if (r.radius) L.circle([r.lat, r.lng], { ...cStyle, radius: r.radius }).addTo(markerLayer);
+      if (g && g.type === 'rectangle' && g.bounds) L.rectangle(g.bounds, cStyle).addTo(areaLayer);
+      else if (g && g.type === 'polygon' && g.points.length >= 3) L.polygon(g.points, cStyle).addTo(areaLayer);
+      else if (r.radius) L.circle([r.lat, r.lng], { ...cStyle, radius: r.radius }).addTo(areaLayer);
       markers.set(r.id, m);
     });
+    markerLayer.addLayers(batch);
 
     if (first && reports.length) {
       map.fitBounds(L.featureGroup([...markers.values()]).getBounds().pad(0.25), { maxZoom: 15 });
@@ -183,48 +165,120 @@
   }
 
   function showProblem(message) {
-    const item = emptyItem('Could not load the overview', message);
-    $('#ovStats').innerHTML = '';
-    $('#advList').innerHTML = item;
-    $('#repList').innerHTML = '';
-    $('#advCount').textContent = '';
-    $('#repCount').textContent = '';
+    $('#statTotal').textContent = '-';
+    $('#statScheduled').textContent = '-';
+    $('#legend').insertAdjacentHTML('beforeend', `<p class="legend-note" role="alert" style="margin-top:14px;color:#a8322a">${esc(message)}</p>`);
   }
 
   let lastSignature = '';
 
-  async function load() {
-    try {
-      const res = await fetch(ENDPOINT, { credentials: 'same-origin' });
-      const text = await res.text();
-      let data;
-      try { data = JSON.parse(text); }
-      catch (e) { throw new Error('Unexpected reply from ' + ENDPOINT + ': ' + text.replace(/<[^>]*>/g, ' ').trim().slice(0, 140)); }
-      if (data.status !== 'success') throw new Error((data.message || 'The server returned an error.') + (data.detail ? ` (${data.detail})` : ''));
-
-      const signature = JSON.stringify(data.reports);
-      if (signature !== lastSignature || first) {
-        lastSignature = signature;
-        render(data.reports);
-      }
-    } catch (err) {
-      if (first) {
-        showProblem(err instanceof TypeError
+  // AJAX call to forms/public_reports.php, which reads the reports table
+  function load() {
+    jQuery.ajax({ url: ENDPOINT, method: 'GET', dataType: 'json', cache: false })
+      .done((data) => {
+        if (data.status !== 'success') {
+          if (first) { showProblem((data.message || 'The server returned an error.') + (data.detail ? ` (${data.detail})` : '')); first = false; }
+          return;
+        }
+        const signature = JSON.stringify([data.reports, data.totals]);
+        if (signature !== lastSignature || first) {
+          lastSignature = signature;
+          render(data.reports, data.totals);
+        }
+      })
+      .fail((xhr) => {
+        if (!first) return;
+        showProblem(xhr.status === 0
           ? 'Cannot reach the server. Open this page from http://localhost/... with Apache and MySQL running in Laragon.'
-          : err.message);
+          : 'Unexpected reply from ' + ENDPOINT + ': ' + String(xhr.responseText || '').replace(/<[^>]*>/g, ' ').trim().slice(0, 140));
         first = false;
-      }
-    }
+      });
   }
 
-  $('#panel').addEventListener('click', (e) => {
-    const btn = e.target.closest('.report-card');
-    if (!btn) return;
-    const m = markers.get(btn.dataset.id);
-    if (!m) return;
-    map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 16), { duration: 0.7 });
-    map.once('moveend', () => m.openPopup());
+  // ---------- Configuration: sort by month / day / year ----------
+  let now = new Date();
+
+  MONTHS.forEach((name, i) => {
+    $('#selMonth').insertAdjacentHTML('beforeend', `<option value="${i}">${name}</option>`);
   });
+  for (let y = now.getFullYear(); y >= now.getFullYear() - YEARS_BACK; y--) {
+    $('#selYear').insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
+  }
+
+  function resetToToday() {
+    now = new Date();
+    $('#selMonth').value = now.getMonth();
+    $('#selYear').value = now.getFullYear();
+    $('#selDay').value = ymd(now);
+  }
+
+  // [from, to): from = first day of the period, to = first day after it
+  function periodRange() {
+    const mode = $('#sortBy').value;
+    let from, to;
+    if (mode === 'month') {
+      const m = parseInt($('#selMonth').value, 10);
+      from = new Date(now.getFullYear(), m, 1);
+      to = new Date(now.getFullYear(), m + 1, 1);
+    } else if (mode === 'year') {
+      const yr = parseInt($('#selYear').value, 10);
+      from = new Date(yr, 0, 1);
+      to = new Date(yr + 1, 0, 1);
+    } else {
+      const parts = $('#selDay').value.split('-');
+      if (parts.length !== 3) return null;
+      from = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+      to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 1);
+    }
+    return { from: ymd(from), to: ymd(to) };
+  }
+
+  function periodText() {
+    const mode = $('#sortBy').value;
+    if (mode === 'month') return MONTHS[$('#selMonth').value] + ' ' + now.getFullYear();
+    if (mode === 'year') return $('#selYear').value;
+    const parts = $('#selDay').value.split('-');
+    return parts.length === 3 ? MONTHS[+parts[1] - 1] + ' ' + (+parts[2]) + ', ' + parts[0] : '';
+  }
+
+  const freqRow = (html) => `<tr><td colspan="3" class="freq-empty">${html}</td></tr>`;
+  let areaTicket = 0;
+
+  // fills the Frequently Affected Areas table for the chosen period
+  function loadFrequentAreas() {
+    const range = periodRange();
+    if (!range) { $('#freqBody').innerHTML = freqRow('Pick a date to see the areas.'); return; }
+
+    const mine = ++areaTicket;
+    jQuery.ajax({ url: AREAS, method: 'GET', data: range, dataType: 'json', cache: false })
+      .done((res) => {
+        if (mine !== areaTicket) return;
+        if (res.status === 'success' && res.areas.length) {
+          $('#freqBody').innerHTML = res.areas.map((row, i) =>
+            `<tr><td>${i + 1}</td><td>${esc(row.area)}</td><td>${row.report_count}</td></tr>`).join('');
+        } else {
+          $('#freqBody').innerHTML = freqRow('No reports for this period.');
+        }
+      })
+      .fail(() => { if (mine === areaTicket) $('#freqBody').innerHTML = freqRow('Could not load the areas.'); });
+  }
+
+  function updatePeriod() {
+    const mode = $('#sortBy').value;
+    $('#fieldMonth').hidden = mode !== 'month';
+    $('#fieldDay').hidden = mode !== 'day';
+    $('#fieldYear').hidden = mode !== 'year';
+
+    const text = periodText();
+    $('#periodLabel').textContent = text.toUpperCase();
+    $('#freqPeriod').textContent = text === '' ? '' : 'Reports during ' + text + '.';
+    loadFrequentAreas();
+  }
+
+  resetToToday();
+  updatePeriod();
+  ['#selMonth', '#selDay', '#selYear'].forEach((s) => $(s).addEventListener('change', updatePeriod));
+  $('#sortBy').addEventListener('change', () => { resetToToday(); updatePeriod(); });
 
   load();
   setInterval(load, REFRESH_MS);

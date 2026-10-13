@@ -12,10 +12,11 @@
         $me   = actor();
         $id   = reportId(input('id'));
 
-        $authorId = null;
-        $delTitle = '';
+        $authorId  = null;
+        $delTitle  = '';
+        $delStatus = '';
 
-        $stmt = $conn->prepare("SELECT author_id, title FROM reports WHERE id = ?");
+        $stmt = $conn->prepare("SELECT author_id, title, status FROM reports WHERE id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
         $stmt->store_result();
@@ -25,12 +26,17 @@
             fail("That report no longer exists.", 404);
         }
 
-        $stmt->bind_result($authorId, $delTitle);
+        $stmt->bind_result($authorId, $delTitle, $delStatus);
         $stmt->fetch();
         $stmt->close();
 
         if ($me['role'] !== 'admin' && $authorId !== $me['key']) {
             fail("You can only delete your own reports.", 403);
+        }
+
+        // resolved reports stay in the database for the history and the frequently affected areas
+        if ($delStatus === 'resolved') {
+            fail("Resolved reports are kept for the history and cannot be deleted.", 409);
         }
 
         $stmt = $conn->prepare("DELETE FROM notifications WHERE report_id = ?");

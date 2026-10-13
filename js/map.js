@@ -8,11 +8,10 @@
     geofenceRadius: 1000,
     homeViewM: 1000,
     maxPhotoPx: 1600,
-    homeIcon: { url: 'assets/images/HOMEMARKER.png', size: [44, 44], anchor: [22, 44] },
+    homeIcon: { url: PipeMarkers.src('home') },
     geoKey: 'pipesense.geo.v3',
     welcomeKey: 'pipesense.welcomed',
-    cityViewbox: '122.84,10.80,123.04,10.55',
-    recurringThreshold: 3
+    cityViewbox: '122.84,10.80,123.04,10.55'
   };
 
   const TYPES = {
@@ -107,13 +106,6 @@
     const a = Math.sin(dLat / 2) ** 2 +
       Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(a));
-  }
-
-  function nearestArea(lat, lng) {
-    return AREAS.reduce((best, a) => {
-      const d = haversine(lat, lng, a.lat, a.lng);
-      return d < best.d ? { name: a.name, d } : best;
-    }, { name: AREAS[0].name, d: Infinity }).name;
   }
 
   function pointInPoly(lat, lng, pts) {
@@ -226,7 +218,7 @@
       showCancelButton: true,
       confirmButtonText: confirmText,
       cancelButtonText: 'Cancel',
-      confirmButtonColor: danger ? '#c9443b' : '#1b6f8f',
+      confirmButtonColor: danger ? '#c9443b' : '#08768b',
       cancelButtonColor: '#587079',
       reverseButtons: true,
       focusCancel: true
@@ -240,7 +232,8 @@
     home: 'forms/save_home.php',
     searchUsers: 'forms/search_users.php',
     notifications: 'forms/notifications.php',
-    log: 'forms/report_log.php'
+    log: 'forms/report_log.php',
+    hotspots: 'forms/hotspots.php'
   };
 
   const db = { reports: [], notifications: [], log: [] };
@@ -255,39 +248,55 @@
     location.replace('login.html');
   }
 
-  async function api(url, fields = {}) {
-    let res;
-    try {
-      const u = currentUser();
-      const hasFile = Object.values(fields).some((v) => v instanceof Blob);
-      let body;
-      if (hasFile) {
-        body = new FormData();
-        Object.entries(fields).forEach(([k, v]) => {
-          if (v instanceof Blob) body.append(k, v, 'photo.jpg');
-          else body.append(k, v == null ? '' : v);
-        });
-      } else {
-        body = new URLSearchParams(fields);
-      }
-      if (u && u.token) body.set('token', u.token);
-      res = await fetch(url, { method: 'POST', body, credentials: 'same-origin' });
-    } catch (e) {
-      throw new Error('Cannot reach the server. Make sure Apache and MySQL are running in Laragon.');
-    }
-    const text = await res.text();
+  // every call to a PHP file goes through jQuery AJAX
+  function api(url, fields = {}) {
+    const u = currentUser();
+    const hasFile = Object.values(fields).some((v) => v instanceof Blob);
     let data;
-    try { data = JSON.parse(text); }
-    catch (e) {
-      throw new Error('Unexpected reply from ' + url + ': ' + text.replace(/<[^>]*>/g, ' ').trim().slice(0, 160));
+    if (hasFile) {
+      data = new FormData();
+      Object.entries(fields).forEach(([k, v]) => {
+        if (v instanceof Blob) data.append(k, v, 'photo.jpg');
+        else data.append(k, v == null ? '' : v);
+      });
+      if (u && u.token) data.set('token', u.token);
+    } else {
+      data = { ...fields };
+      if (u && u.token) data.token = u.token;
     }
-    if (res.status === 401) { sessionExpired(); throw new Error(data.message || 'Session expired.'); }
-    if (data.status !== 'success') {
-      const err = new Error(data.message || 'The request failed.');
-      err.detail = data.detail;
-      throw err;
-    }
-    return data;
+
+    return new Promise((resolve, reject) => {
+      jQuery.ajax({
+        url,
+        method: 'POST',
+        data,
+        dataType: 'json',
+        processData: !hasFile,
+        contentType: hasFile ? false : 'application/x-www-form-urlencoded; charset=UTF-8'
+      })
+        .done((res) => {
+          if (res && res.status === 'success') return resolve(res);
+          const err = new Error((res && res.message) || 'The request failed.');
+          err.detail = res && res.detail;
+          reject(err);
+        })
+        .fail((xhr) => {
+          const res = xhr.responseJSON;
+          if (xhr.status === 401) {
+            sessionExpired();
+            return reject(new Error((res && res.message) || 'Session expired.'));
+          }
+          if (res && res.message) {
+            const err = new Error(res.message);
+            err.detail = res.detail;
+            return reject(err);
+          }
+          if (xhr.status === 0) {
+            return reject(new Error('Cannot reach the server. Make sure Apache and MySQL are running in Laragon.'));
+          }
+          reject(new Error('Unexpected reply from ' + url + ': ' + String(xhr.responseText || '').replace(/<[^>]*>/g, ' ').trim().slice(0, 160)));
+        });
+    });
   }
 
   const errMsg = (e) => (e && e.message ? e.message : 'Something went wrong.') + (e && e.detail ? ` (${e.detail})` : '');
@@ -332,6 +341,11 @@
   }
 
   let lastUpdate = { message: '', emailed: 0 };
+
+  function resolvedNotice(fallback = 'Marked as resolved.') {
+    const m = lastUpdate.message || fallback;
+    toast(m, /could not be sent/.test(m) ? 'warning' : 'success');
+  }
 
   function verifyNotice() {
     const m = lastUpdate.message || 'Report verified.';
@@ -396,7 +410,7 @@
 
   function affectsHome(r) {
     if (r.status === 'resolved') return false;
-    if (!r.verified && !r.codeRed) return false;
+    if (!r.verified) return false;
     const h = homeArea();
     if (!h) return false;
     return reportCovers(r, h.lat, h.lng);
@@ -406,7 +420,7 @@
     view: 'reports',
     from: 'reports',
     selectedId: null,
-    filters: { q: '', type: '', status: '', verify: '', scope: '', area: '', from: '', to: '' },
+    filters: { q: '', type: '', status: '', verify: '', scope: '', from: '', to: '' },
     placing: false,
     onPlace: null,
     editingId: null,
@@ -427,7 +441,8 @@
     attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics'
   });
 
-  const viewToggle = L.control({ position: 'topright' });
+  // bottom right, above the zoom buttons, so it never sits under the resident search bar
+  const viewToggle = L.control({ position: 'bottomright' });
   viewToggle.onAdd = () => {
     const btn = L.DomUtil.create('button', 'view-toggle');
     btn.type = 'button';
@@ -444,8 +459,68 @@
   };
   viewToggle.addTo(map);
 
-  const markerLayer = L.layerGroup().addTo(map);
+  // Reports are grouped when zoomed out; from zoom 16 every report shows as its own pin.
+  // The cluster colour depends on how many reports it holds compared with all shown reports.
+  let clusterTotal = 0;
+
+  function frequencyLevel(count) {
+    const share = count / Math.max(clusterTotal, 1);
+    if (share >= 0.50) return 5;
+    if (share >= 0.30) return 4;
+    if (share >= 0.15) return 3;
+    if (share >= 0.05) return 2;
+    return 1;
+  }
+
+  function clusterIcon(cluster) {
+    const n = cluster.getChildCount();
+    return L.divIcon({
+      className: 'cluster-wrap',
+      html: `<div class="cluster f${frequencyLevel(n)}"><span>${n}</span></div>`,
+      iconSize: [40, 40]
+    });
+  }
+
+  function homeClusterIcon(cluster) {
+    return L.divIcon({
+      className: 'cluster-wrap',
+      html: `<div class="cluster fh"><span>${cluster.getChildCount()}</span></div>`,
+      iconSize: [40, 40]
+    });
+  }
+
+  function unverifiedClusterIcon(cluster) {
+    return L.divIcon({
+      className: 'cluster-wrap',
+      html: `<div class="cluster fu"><span>${cluster.getChildCount()}</span></div>`,
+      iconSize: [40, 40]
+    });
+  }
+
+  const clusterOptions = { maxClusterRadius: 60, disableClusteringAtZoom: 16, showCoverageOnHover: false };
+
+  const markerLayer = L.markerClusterGroup({ ...clusterOptions, iconCreateFunction: clusterIcon }).addTo(map);
+  // unverified reports group on their own, in grey, so they are never mixed into the verified counts
+  const unverifiedLayer = L.markerClusterGroup({ ...clusterOptions, iconCreateFunction: unverifiedClusterIcon }).addTo(map);
+  // resolved reports are never grouped: each one stays its own pin
+  const plainLayer = L.layerGroup().addTo(map);
+  const areaLayer = L.layerGroup().addTo(map);
   const hotspotLayer = L.layerGroup();
+
+  // opens a marker's popup, zooming in first when it sits inside a cluster
+  function revealMarker(group, marker, done) {
+    if (!marker) return;
+    if (!group.hasLayer(marker)) { if (marker._map && done) done(); return; }
+    if (group.getVisibleParent(marker) === marker) { if (done) done(); return; }
+    group.zoomToShowLayer(marker, () => { if (done) done(); });
+  }
+  // opens a report's popup, zooming in first when it sits inside either kind of cluster
+  function revealReport(id) {
+    const m = markers.get(id);
+    if (!m) return;
+    const group = unverifiedLayer.hasLayer(m) ? unverifiedLayer : markerLayer;
+    revealMarker(group, m, () => m.openPopup());
+  }
   const markers = new Map();
   let draftMarker = null;
   let meMarker = null;
@@ -453,17 +528,9 @@
   const CHECK_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.500 6.300l2.400 2.400L9.500 3.600" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function pinIcon(r) {
-    const t = TYPES[r.type] || { color: '#587079' };
+    const key = r.verified && TYPES[r.type] ? r.type : 'unverified';
     const sel = r.id === state.selectedId ? ' is-selected' : '';
-    const ver = r.verified ? 'is-verified' : 'is-unverified';
-    const inner = r.verified ? CHECK_SVG : '<span class="pin-q">?</span>';
-    return L.divIcon({
-      className: 'pin-wrap',
-      html: `<div class="pin ${ver} st-${r.status}${sel}${r.codeRed ? ' is-codered' : ''}" style="--c:${t.color}"><span>${inner}</span></div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 28],
-      popupAnchor: [0, -28]
-    });
+    return PipeMarkers.divIcon(key, `pin-img st-${r.status}${sel}`);
   }
 
   function popupHTML(r) {
@@ -472,14 +539,27 @@
       : '';
     return photo +
       `<div class="popup-title">${esc(r.title)}</div>` +
-      `<div class="popup-sub">${esc(TYPES[r.type]?.label)} in ${esc(r.area)}, ${esc(STATUSES[r.status])}</div>` +
+      `<div class="popup-sub">${esc(TYPES[r.type]?.label)}, ${esc(STATUSES[r.status])}</div>` +
       (r.desc ? `<p class="popup-desc">${esc(r.desc)}</p>` : '');
   }
 
   function renderMarkers() {
     markerLayer.clearLayers();
+    unverifiedLayer.clearLayers();
+    plainLayer.clearLayers();
+    areaLayer.clearLayers();
     markers.clear();
-    filteredReports('map').forEach((r) => {
+
+    const shown = filteredReports('map');
+    // only open, verified reports and official announcements are grouped
+    const groupable = (r) => r.status !== 'resolved' && (r.source === 'official' || r.verified);
+    clusterTotal = shown.filter(groupable).length;
+    // open community reports that no administrator has verified yet
+    const pendingGroup = (r) => r.status !== 'resolved' && r.source !== 'official' && !r.verified;
+    const batch = [];
+    const pendingBatch = [];
+
+    shown.forEach((r) => {
       const m = L.marker([r.lat, r.lng], {
         icon: pinIcon(r),
         title: r.title,
@@ -491,37 +571,87 @@
         if (img && !img.complete) img.addEventListener('load', () => ev.popup.update());
       });
       m.on('click', () => { if (!state.drawingGeo) selectReport(r.id, { fly: false }); });
-      m.addTo(markerLayer);
       markers.set(r.id, m);
-      if (r.status !== 'resolved' && (r.source === 'official' || r.verified || isAdmin())) {
+
+      // a report that is not verified stays a single marker: no range, no grouping, until an admin verifies it
+      if (groupable(r)) batch.push(m);
+      else if (pendingGroup(r)) pendingBatch.push(m);
+      else m.addTo(plainLayer);
+      if (groupable(r)) {
         const c = TYPES[r.type]?.color || '#587079';
-        const trusted = r.source === 'official' || r.verified;
-        const style = {
-          color: c, weight: 1.5, dashArray: trusted ? '4 6' : '2 6',
-          fillColor: c, fillOpacity: trusted ? 0.09 : 0.04, interactive: false
-        };
-        const layer = coverageLayer(r, style);
-        if (layer) layer.addTo(markerLayer);
+        const layer = coverageLayer(r, {
+          color: c, weight: 1.5, dashArray: '4 6',
+          fillColor: c, fillOpacity: 0.09, interactive: false
+        });
+        if (layer) layer.addTo(areaLayer);
       }
     });
+
+    markerLayer.addLayers(batch);
+    unverifiedLayer.addLayers(pendingBatch);
+  }
+
+  // Frequently affected areas: the server (forms/hotspots.php) works out where the areas of
+  // verified reports, resolved or still open, overlap. Only that ground is drawn, and the
+  // colour gets stronger the more areas overlap there.
+  const hot = { index: new Map(), data: null, sig: '' };
+  const hotRenderer = L.canvas({ padding: 0.3 });
+  const hotTip = L.tooltip({ direction: 'top', offset: [0, -4], opacity: 0.95 });
+
+  const heatOpacity = (n) => Math.min(0.16 + (n - 2) * 0.14, 0.78);
+
+  function hotSignature() {
+    return JSON.stringify(db.reports.filter((r) => r.verified)
+      .map((r) => [r.id, r.lat, r.lng, r.radius, r.geofence]));
+  }
+
+  async function loadHotspots() {
+    try {
+      const data = await api(API.hotspots, {});
+      hot.data = data;
+      hot.sig = hotSignature();
+      hot.index = new Map();
+      (data.cells || []).forEach(([lat, lng, n]) => {
+        const i = Math.round((lat - data.south) / data.stepLat);
+        const j = Math.round((lng - data.west) / data.stepLng);
+        hot.index.set(i + ':' + j, n);
+      });
+      renderHotspots();
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
   }
 
   function renderHotspots() {
     hotspotLayer.clearLayers();
-    const counts = areaCounts();
-    AREAS.forEach((a) => {
-      const n = counts[a.name] || 0;
-      if (!n) return;
-      L.circle([a.lat, a.lng], {
-        radius: 260 + n * 110,
-        color: '#c9443b',
-        weight: 1.500,
+    const d = hot.data;
+    if (!d || !d.cells || !d.cells.length) return;
+    d.cells.forEach(([lat, lng, n]) => {
+      L.rectangle([[lat, lng], [lat + d.stepLat, lng + d.stepLng]], {
+        renderer: hotRenderer,
+        stroke: false,
         fillColor: '#c9443b',
-        fillOpacity: Math.min(0.12 + n * 0.06, 0.45),
-        interactive: true
-      }).bindTooltip(`${a.name}: ${n} report${n > 1 ? 's' : ''}`).addTo(hotspotLayer);
+        fillOpacity: heatOpacity(n),
+        interactive: false
+      }).addTo(hotspotLayer);
     });
   }
+
+  function hotspotCount(latlng) {
+    const d = hot.data;
+    if (!d || !d.stepLat) return 0;
+    const i = Math.floor((latlng.lat - d.south) / d.stepLat);
+    const j = Math.floor((latlng.lng - d.west) / d.stepLng);
+    return hot.index.get(i + ':' + j) || 0;
+  }
+
+  map.on('mousemove', (e) => {
+    if (!state.hotOn) return;
+    const n = hotspotCount(e.latlng);
+    if (!n) { map.closeTooltip(hotTip); return; }
+    hotTip.setLatLng(e.latlng).setContent(`${n} verified reports cover this spot`);
+    map.openTooltip(hotTip);
+  });
 
   function setDraftMarker(lat, lng) {
     if (draftMarker) map.removeLayer(draftMarker);
@@ -540,7 +670,7 @@
   }
 
   function filteredReports(mode = 'list') {
-    const { q, type, status, verify, scope, area, from, to } = state.filters;
+    const { q, type, status, verify, scope, from, to } = state.filters;
     const needle = q.trim().toLowerCase();
     const fromMs = from ? new Date(from + 'T00:00:00').getTime() : null;
     const toMs = to ? new Date(to + 'T23:59:59.999').getTime() : null;
@@ -550,7 +680,6 @@
         else if (isAdmin() && r.status === 'resolved') return false;
         if (scope === 'mine' && !isOwn(r)) return false;
         if (scope === 'others' && isOwn(r)) return false;
-        if (area && r.area !== area) return false;
         if (fromMs !== null && r.createdAt < fromMs) return false;
         if (toMs !== null && r.createdAt > toMs) return false;
         if (type && r.type !== type) return false;
@@ -558,7 +687,7 @@
         if (verify === 'verified' && !r.verified) return false;
         if (verify === 'unverified' && r.verified) return false;
         if (needle) {
-          const hay = `${r.title} ${r.desc} ${r.area} ${r.author || ''}`.toLowerCase();
+          const hay = `${r.title} ${r.desc} ${r.author || ''}`.toLowerCase();
           if (!hay.includes(needle)) return false;
         }
         return true;
@@ -566,11 +695,11 @@
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  const emptyFilters = () => ({ q: '', type: '', status: '', verify: '', scope: '', area: '', from: '', to: '' });
+  const emptyFilters = () => ({ q: '', type: '', status: '', verify: '', scope: '', from: '', to: '' });
 
   function syncFilterControls() {
     [['#fSearch', 'q'], ['#fType', 'type'], ['#fStatus', 'status'], ['#fVerify', 'verify'],
-     ['#fScope', 'scope'], ['#fArea', 'area'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
+     ['#fScope', 'scope'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
       const el = $(sel);
       if (el) el.value = state.filters[key];
     });
@@ -599,7 +728,7 @@
 
   function filtersActive() {
     const f = state.filters;
-    return !!(f.q || f.type || f.status || f.verify || f.scope || f.area || f.from || f.to);
+    return !!(f.q || f.type || f.status || f.verify || f.scope || f.from || f.to);
   }
 
   const statusPill = (r) =>
@@ -609,7 +738,6 @@
     ? `<span class="pill pill-verified">${CHECK_SVG.replace('<svg', '<svg width="11" height="11"')}Verified</span>`
     : '<span class="pill pill-unverified">Unverified</span>';
 
-  const codePill = (r) => r.codeRed ? '<span class="pill pill-codered">Code red</span>' : '';
   const minePill = (r) => isOwn(r) ? '<span class="pill pill-mine">Yours</span>' : '';
   const affectsPill = (r) => affectsHome(r) ? '<span class="pill pill-affects">Affects your home</span>' : '';
 
@@ -643,9 +771,9 @@
         <button type="button" class="report-card${r.id === state.selectedId ? ' is-selected' : ''}"
                 data-id="${esc(r.id)}" style="--c:${TYPES[r.type]?.color || '#587079'}">
           <h3>${esc(r.title)}</h3>
-          <div class="where">${esc(TYPES[r.type]?.label)} in ${esc(r.area)} &middot; ${fmtDate.format(r.createdAt)}</div>
+          <div class="where">${esc(TYPES[r.type]?.label)} &middot; ${fmtDate.format(r.createdAt)}</div>
           <div class="pills">
-            ${codePill(r)}${statusPill(r)}${verifyPill(r)}${sourcePill(r)}${minePill(r)}${affectsPill(r)}
+            ${statusPill(r)}${verifyPill(r)}${sourcePill(r)}${minePill(r)}${affectsPill(r)}
             <span class="time-ago">${ago(r.createdAt)}</span>
           </div>
         </button>
@@ -700,7 +828,7 @@
 
         <div class="detail-head" style="--c:${t.color}">
           <h2>${esc(r.title)}</h2>
-          <div class="pills">${codePill(r)}${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
+          <div class="pills">${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
         </div>
 
         ${alertBox}
@@ -709,14 +837,13 @@
 
         <dl class="facts">
           <dt>Type</dt><dd>${esc(t.label)}</dd>
-          <dt>Barangay</dt><dd>${esc(r.area)}</dd>
           <dt>Coordinates</dt><dd>${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}</dd>
           <dt>Posted by</dt><dd>${esc(r.author || 'Anonymous resident')}</dd>
           <dt>Posted</dt><dd>${fmtDate.format(r.createdAt)} (${ago(r.createdAt)})</dd>
           <dt>Verification</dt><dd>${r.verified ? 'Verified by an administrator' : 'Not yet verified'}</dd>
           ${isOwn(r) ? `<dt>Resolution</dt><dd>${esc(STATUSES[r.status])}</dd>` : ''}
-          ${admin || r.verified ? `<dt>Coverage</dt><dd>${esc(coverageLabel(r))}</dd>` : ''}
-          ${admin ? `<dt>Residents in area</dt><dd>${esc(affectedText(r))}</dd>` : ''}
+          ${r.verified ? `<dt>Coverage</dt><dd>${esc(coverageLabel(r))}</dd>` : ''}
+          ${admin && r.verified ? `<dt>Residents in area</dt><dd>${esc(affectedText(r))}</dd>` : ''}
           ${r.status === 'resolved' && r.resolvedAt ? `<dt>Resolved</dt><dd>${fmtDate.format(r.resolvedAt)}</dd>` : ''}
           ${schedule}
         </dl>
@@ -740,15 +867,9 @@
           ${admin ? '<button type="button" class="btn" data-action="history">View history</button>' : ''}
           ${admin && r.source === 'official' && ['scheduled', 'ongoing'].includes(r.status) ? '<button type="button" class="btn" data-action="renotify">Send notice again</button>' : ''}
           ${modify ? '<button type="button" class="btn" data-action="edit">Edit</button>' : ''}
-          ${modify ? '<button type="button" class="btn btn-danger" data-action="delete">Delete</button>' : ''}
+          ${modify && r.status !== 'resolved' ? '<button type="button" class="btn btn-danger" data-action="delete">Delete</button>' : ''}
         </div>
       </div>`;
-  }
-
-  function areaCounts() {
-    const counts = {};
-    db.reports.forEach((r) => { counts[r.area] = (counts[r.area] || 0) + 1; });
-    return counts;
   }
 
   function renderInsights() {
@@ -777,22 +898,6 @@
         <span class="bar-num">${x.n}</span>
       </div>`).join('');
 
-    const counts = areaCounts();
-    const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    const areaRows = ranked.length ? ranked.map(([name, n]) => {
-      const mine = rs.filter((r) => r.area === name);
-      const open = mine.filter((r) => r.status !== 'resolved').length;
-      const topType = Object.keys(TYPES)
-        .map((k) => [k, mine.filter((r) => r.type === k).length])
-        .sort((a, b) => b[1] - a[1])[0];
-      return `
-        <div class="area-row">
-          <span class="area-name">${esc(name)}${n >= CONFIG.recurringThreshold ? '<span class="flag">Frequently affected</span>' : ''}</span>
-          <span class="area-count">${n}</span>
-          <span class="area-sub">${open} still open. Most common: ${esc(TYPES[topType[0]].label.toLowerCase())}.</span>
-        </div>`;
-    }).join('') : '<p class="lead">No reports yet.</p>';
-
     box.innerHTML = `
       <div class="insights">
         <h2>Water service summary</h2>
@@ -813,11 +918,6 @@
         <div class="block">
           <h3>Reports by status</h3>
           ${bars(byStatus, maxStatus)}
-        </div>
-
-        <div class="block">
-          <h3>Areas with the most reports</h3>
-          ${areaRows}
         </div>
 
         <div class="insight-actions">
@@ -867,7 +967,8 @@
     if (fly) {
       map.flyTo([r.lat, r.lng], Math.max(map.getZoom(), 16), { duration: 0.8 });
     }
-    markers.get(id)?.openPopup();
+    const open = () => revealReport(id);
+    if (fly) map.once('moveend', open); else open();
   }
 
   function refresh() {
@@ -875,7 +976,7 @@
     renderHome();
     renderList();
     renderMarkers();
-    renderHotspots();
+    if (state.hotOn && hotSignature() !== hot.sig) loadHotspots();
     if (state.view === 'detail') renderDetail();
     if (state.view === 'insights') renderInsights();
     if (state.view === 'dashboard') renderDashboard();
@@ -888,9 +989,9 @@
       <div class="queue-item" style="--c:${t.color}">
         <button type="button" class="queue-main" data-action="open" data-id="${esc(r.id)}">
           <strong>${esc(r.title)}</strong>
-          <span>${esc(t.label)} in ${esc(r.area)}, ${ago(r.createdAt)}</span>
+          <span>${esc(t.label)}, ${ago(r.createdAt)}</span>
         </button>
-        <div class="pills">${codePill(r)}${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
+        <div class="pills">${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
         <div class="queue-actions">${actions}</div>
       </div>`;
   }
@@ -937,7 +1038,7 @@
     const mineRows = mine.length
       ? mine.slice(0, 3).map((r) => reportRow(r,
           `<button type="button" class="btn btn-small" data-action="edit" data-id="${esc(r.id)}">Edit</button>
-           <button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="${esc(r.id)}">Delete</button>`)).join('')
+           ${r.status === 'resolved' ? '' : `<button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="${esc(r.id)}">Delete</button>`}`)).join('')
         + (mine.length > 3 ? `<p style="margin:10px 0 0"><button type="button" class="link-btn" data-action="my-reports">See all ${mine.length} of my reports</button></p>` : '')
       : '<p class="empty-inline">You have not reported anything yet. Pin an issue on the map to start.</p>';
 
@@ -1056,6 +1157,7 @@
     if (a === 'open' && r) return selectReport(r.id);
     if (a === 'edit' && r && canModify(r)) return openReportForm({ report: r });
     if (a === 'delete' && r && canModify(r)) {
+      if (r.status === 'resolved') return toast('Resolved reports are kept in the history and cannot be deleted.', 'info');
       if (!(await confirmAction({ title: 'Delete this report?', text: 'This cannot be undone.' }))) return;
       if (!(await removeReport(r.id))) return;
       return refresh();
@@ -1064,7 +1166,7 @@
     if (a === 'resolve' && r && isAdmin()) {
       if (!(await confirmAction({ title: 'Mark as resolved?', text: 'It leaves the active map but stays in the report history.', confirmText: 'Mark as resolved', danger: false }))) return;
       if (!(await updateReport(r.id, { status: 'resolved' }))) return;
-      toast('Marked as resolved.');
+      resolvedNotice();
       return refresh();
     }
     if (a === 'notif-open') {
@@ -1095,7 +1197,7 @@
     if (a === 'test-mail' && isAdmin()) {
       const res = await Swal.fire({
         title: 'Send a test email',
-        text: 'Checks that residents can receive code red and interruption emails.',
+        text: 'Checks that residents can receive water service emails.',
         input: 'email',
         inputPlaceholder: 'you@gmail.com',
         showCancelButton: true,
@@ -1307,10 +1409,6 @@
     fillSelect($('#rStatus'), statusKeys.map((k) => [k, STATUSES[k]]),
       report?.status || (official ? 'scheduled' : 'reported'));
     $('#rStatusField').hidden = !(admin || editing);
-    if ($('#codeRedField')) {
-      $('#codeRedField').hidden = !admin;
-      $('#rCodeRed').checked = !!report?.codeRed;
-    }
 
     $('#officialBox').hidden = !admin;
     $('#rOfficial').checked = editing ? report.source === 'official' : official;
@@ -1400,7 +1498,6 @@
     const payload = {
       action: editing ? 'update' : 'create',
       type: $('#rType').value,
-      area: nearestArea(state.draft.lat, state.draft.lng),
       title,
       desc: $('#rDesc').value.trim(),
       lat: state.draft.lat,
@@ -1415,7 +1512,6 @@
       payload.geofence = kind !== 'circle' && state.draftGeo ? JSON.stringify(state.draftGeo) : '';
       if (state.verifying) payload.verified = '1';
       payload.official = official ? '1' : '0';
-      payload.codeRed = $('#rCodeRed') && $('#rCodeRed').checked ? '1' : '0';
       payload.startsAt = official && startsAt ? startsAt : '';
       payload.endsAt = official && endsAt ? endsAt : '';
     }
@@ -1455,12 +1551,13 @@
 
     if (action === 'focus') {
       map.flyTo([r.lat, r.lng], 17, { duration: 0.8 });
-      markers.get(r.id)?.openPopup();
+      map.once('moveend', () => revealReport(r.id));
     }
     if (action === 'edit' && canModify(r)) {
       openReportForm({ report: r });
     }
     if (action === 'delete' && canModify(r)) {
+      if (r.status === 'resolved') return toast('Resolved reports are kept in the history and cannot be deleted.', 'info');
       if (!(await confirmAction({ title: 'Delete this report?', text: 'This cannot be undone.' }))) return;
       if (!(await removeReport(r.id))) return;
       showView(state.from);
@@ -1470,7 +1567,7 @@
       if (!(await confirmAction({ title: 'Mark as resolved?', text: 'It leaves the active map but stays in the report history.', confirmText: 'Mark as resolved', danger: false }))) return;
       const saved = await updateReport(r.id, { status: 'resolved' });
       if (!saved) return;
-      toast('Marked as resolved.');
+      resolvedNotice();
       return refresh();
     }
     if (action === 'reopen' && isAdmin()) return reopenReport(r.id);
@@ -1508,15 +1605,16 @@
     }
     const saved = await updateReport(r.id, { status: e.target.value });
     if (!saved) return refresh();
-    toast(`Status changed to ${STATUSES[saved.status].toLowerCase()}.`);
+    if (saved.status === 'resolved') resolvedNotice();
+    else toast(`Status changed to ${STATUSES[saved.status].toLowerCase()}.`);
     refresh();
   }
 
   function exportCSV() {
-    const head = ['id', 'type', 'title', 'barangay', 'status', 'verified', 'source', 'latitude', 'longitude', 'posted_by', 'posted_at'];
+    const head = ['id', 'type', 'title', 'status', 'verified', 'source', 'latitude', 'longitude', 'posted_by', 'posted_at'];
     const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = db.reports.map((r) => [
-      r.id, TYPES[r.type]?.label, r.title, r.area, STATUSES[r.status],
+      r.id, TYPES[r.type]?.label, r.title, STATUSES[r.status],
       r.verified ? 'yes' : 'no', r.source, r.lat, r.lng, r.author || '', new Date(r.createdAt).toISOString()
     ].map(q).join(','));
     const blob = new Blob([[head.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -1541,8 +1639,8 @@
 
   function baseHomeArea() {
     const u = currentUser();
-    if (!u || u.role === 'admin' || !u.address) return null;
-    const name = String(u.address).split(',')[0].trim().toLowerCase();
+    if (!u || u.role === 'admin' || !((myHome && myHome.barangay) || u.address)) return null;
+    const name = String((myHome && myHome.barangay) || u.address).split(',')[0].trim().toLowerCase();
     return AREAS.find((a) => a.name.toLowerCase() === name) || null;
   }
 
@@ -1550,12 +1648,12 @@
 
   async function fetchMyHome() {
     const data = await api(API.home, { action: 'get' });
-    return data.home ? { lat: +data.home.lat, lng: +data.home.lng } : null;
+    return data.home ? { lat: +data.home.lat, lng: +data.home.lng, barangay: data.home.barangay || '' } : null;
   }
 
-  async function saveHome(lat, lng) {
-    const data = await api(API.home, { action: 'save', lat, lng });
-    return { lat: +data.home.lat, lng: +data.home.lng };
+  async function saveHome(lat, lng, barangay) {
+    const data = await api(API.home, { action: 'save', lat, lng, barangay });
+    return { lat: +data.home.lat, lng: +data.home.lng, barangay: data.home.barangay || barangay };
   }
 
   function homeArea() {
@@ -1671,7 +1769,7 @@
       title: 'Your home'
     }).addTo(homeLayer);
     if (isResident()) {
-      hm.bindTooltip('Your home. Drag to move it.', { direction: 'top', offset: [0, -40] });
+      hm.bindTooltip('Your home. Drag to move it.', { direction: 'top', offset: [0, -46] });
       hm.on('dragstart', () => { state.draggingHome = true; });
       hm.on('dragend', () => moveHomeByDrag(hm));
     }
@@ -1689,18 +1787,14 @@
     if (homeImgOk === false) {
       return L.divIcon({
         className: 'pin-wrap',
-        html: '<div style="width:34px;height:34px;border-radius:50%;background:#1b6f8f;border:3px solid #fff;' +
+        html: '<div style="width:34px;height:34px;border-radius:50%;background:#08768b;border:3px solid #fff;' +
               'box-shadow:0 2px 6px rgba(16,48,59,.45);display:grid;place-items:center;color:#fff">' +
               '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z" fill="currentColor"/></svg></div>',
         iconSize: [34, 34],
         iconAnchor: [17, 17]
       });
     }
-    return L.icon({
-      iconUrl: CONFIG.homeIcon.url,
-      iconSize: CONFIG.homeIcon.size,
-      iconAnchor: CONFIG.homeIcon.anchor
-    });
+    return PipeMarkers.divIcon('home', 'pin-img');
   }
 
   function focusHome() {
@@ -1821,28 +1915,52 @@
     if (homeDraft) { map.removeLayer(homeDraft); homeDraft = null; }
   }
 
+  // Step 1: which barangay is the home in? Asked every time a home is placed or moved.
+  async function askBarangay() {
+    const moving = !!myHome;
+    const res = await Swal.fire({
+      icon: 'question',
+      title: 'Which barangay is your home in?',
+      text: moving && myHome.barangay ? `Your home is currently in ${myHome.barangay}.` : 'Choose the barangay of this spot.',
+      input: 'select',
+      inputOptions: Object.fromEntries(AREAS.map((a) => [a.name, a.name])),
+      inputPlaceholder: 'Choose your barangay',
+      inputValidator: (v) => (v ? undefined : 'Please choose your barangay.'),
+      showCancelButton: true,
+      confirmButtonText: 'Next',
+      cancelButtonText: moving ? 'Keep current home' : 'Choose again',
+      allowOutsideClick: false,
+      reverseButtons: true
+    });
+    return res.isConfirmed ? res.value : null;
+  }
+
+  // Step 2: confirm the home. Returns the chosen barangay, or null when cancelled.
   async function askHomeConfirm(lat, lng) {
+    const barangay = await askBarangay();
+    if (!barangay) return null;
+
     const moving = !!myHome;
     const dist = moving ? Math.round(haversine(myHome.lat, myHome.lng, lat, lng)) : 0;
     const res = await Swal.fire({
       icon: 'question',
       title: moving ? 'Move your home marker?' : 'Set this as your home?',
       html: moving
-        ? `<p style="margin:0 0 6px">New spot: ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>About ${dist} m from your current home.</p>
+        ? `<p style="margin:0 0 6px">Barangay: <b>${esc(barangay)}</b><br>New spot: ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>About ${dist} m from your current home.</p>
            <p style="margin:0;font-size:14px;color:#587079">Interruption notices will follow the new location.</p>`
-        : `<p style="margin:0">${lat.toFixed(5)}, ${lng.toFixed(5)}</p>`,
+        : `<p style="margin:0">Barangay: <b>${esc(barangay)}</b><br>${lat.toFixed(5)}, ${lng.toFixed(5)}</p>`,
       showCancelButton: true,
       confirmButtonText: moving ? 'Yes, move my home' : 'Yes, this is my home',
       cancelButtonText: moving ? 'Keep current home' : 'Choose again',
       allowOutsideClick: false,
       reverseButtons: true
     });
-    return res.isConfirmed;
+    return res.isConfirmed ? barangay : null;
   }
 
-  async function commitHome(lat, lng, { first = false } = {}) {
+  async function commitHome(lat, lng, barangay, { first = false } = {}) {
     try {
-      myHome = await saveHome(lat, lng);
+      myHome = await saveHome(lat, lng, barangay);
     } catch (err) {
       await Swal.fire({ icon: 'error', title: 'Could not save your home', text: errMsg(err), confirmButtonText: 'OK' });
       if (homeDraft) { map.removeLayer(homeDraft); homeDraft = null; }
@@ -1875,15 +1993,15 @@
     if (homeDraft) map.removeLayer(homeDraft);
     homeDraft = L.marker([lat, lng], { icon: homeIcon(), interactive: false, opacity: 0.85 }).addTo(map);
 
-    const ok = await askHomeConfirm(lat, lng);
+    const barangay = await askHomeConfirm(lat, lng);
     state.confirmingHome = false;
 
-    if (!ok) {
+    if (!barangay) {
       map.removeLayer(homeDraft);
       homeDraft = null;
       return;
     }
-    await commitHome(lat, lng, { first: state.forceHome });
+    await commitHome(lat, lng, barangay, { first: state.forceHome });
   }
 
   async function moveHomeByDrag(marker) {
@@ -1897,10 +2015,10 @@
         return;
       }
       state.confirmingHome = true;
-      const ok = await askHomeConfirm(p.lat, p.lng);
+      const barangay = await askHomeConfirm(p.lat, p.lng);
       state.confirmingHome = false;
-      if (!ok) { marker.setLatLng([old.lat, old.lng]); return; }
-      if (!(await commitHome(p.lat, p.lng))) marker.setLatLng([old.lat, old.lng]);
+      if (!barangay) { marker.setLatLng([old.lat, old.lng]); return; }
+      if (!(await commitHome(p.lat, p.lng, barangay))) marker.setLatLng([old.lat, old.lng]);
     } finally {
       state.confirmingHome = false;
       state.draggingHome = false;
@@ -1911,7 +2029,7 @@
     if (state.settingHome) chooseHome(e.latlng.lat, e.latlng.lng);
   });
 
-  const usersLayer = L.layerGroup().addTo(map);
+  const usersLayer = L.markerClusterGroup({ ...clusterOptions, iconCreateFunction: homeClusterIcon }).addTo(map);
   const userMarkers = new Map();
   let userHomes = [];
 
@@ -1944,8 +2062,14 @@
     box.className = 'map-search';
     box.innerHTML = `
       <label class="sr-only" for="userSearch">Search residents</label>
-      <input type="search" id="userSearch" placeholder="Search a resident or barangay" autocomplete="off"
-             role="combobox" aria-expanded="false" aria-controls="userSuggest" aria-autocomplete="list">
+      <div class="search-field">
+        <svg class="search-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/>
+          <path d="M15.5 15.5 21 21" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+        <input type="search" id="userSearch" placeholder="Search a resident or barangay" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="userSuggest" aria-autocomplete="list">
+      </div>
       <ul class="suggest" id="userSuggest" role="listbox" hidden></ul>`;
     $('.mapwrap').appendChild(box);
 
@@ -2008,7 +2132,7 @@
         try { await loadUserHomes(); renderUserHomes(); } catch (e) { }
       }
       map.flyTo([r.lat, r.lng], 17, { duration: 0.8 });
-      map.once('moveend', () => userMarkers.get(String(r.id))?.openPopup());
+      map.once('moveend', () => revealMarker(usersLayer, userMarkers.get(String(r.id)), () => userMarkers.get(String(r.id)).openPopup()));
     }
 
     input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(search, 250); });
@@ -2139,7 +2263,7 @@
       const items = db.reports
         .filter((r) => r.status === 'resolved')
         .filter((r) => inHistRange(histTime(r)))
-        .filter((r) => !needle || `${r.title} ${r.desc} ${r.area} ${r.author || ''}`.toLowerCase().includes(needle))
+        .filter((r) => !needle || `${r.title} ${r.desc} ${r.author || ''}`.toLowerCase().includes(needle))
         .sort((a, b) => histTime(b) - histTime(a));
 
       body.innerHTML = `<p class="lead" style="margin:0 0 6px">${items.length} resolved report${items.length === 1 ? '' : 's'}.</p>` +
@@ -2149,7 +2273,7 @@
             <div class="queue-item" style="--c:${t.color}">
               <button type="button" class="queue-main" data-action="open" data-id="${esc(r.id)}">
                 <strong>${esc(r.title)}</strong>
-                <span>${esc(t.label)} in ${esc(r.area)}. ${r.resolvedAt ? 'Resolved ' + fmtDate.format(r.resolvedAt) : 'Posted ' + fmtDate.format(r.createdAt)}</span>
+                <span>${esc(t.label)}. ${r.resolvedAt ? 'Resolved ' + fmtDate.format(r.resolvedAt) : 'Posted ' + fmtDate.format(r.createdAt)}</span>
               </button>
               <div class="pills">${verifyPill(r)}${sourcePill(r)}</div>
               <div class="queue-actions">
@@ -2415,8 +2539,7 @@
       radius: $('#rRadius') ? $('#rRadius').value : '',
       range: $('#rRange') ? $('#rRange').value : '',
       shape: $('#rShape') ? $('#rShape').value : 'circle',
-      removePhoto: $('#rPhotoRemove').checked,
-      codeRed: $('#rCodeRed') ? $('#rCodeRed').checked : false
+      removePhoto: $('#rPhotoRemove').checked
     };
   }
 
@@ -2434,7 +2557,6 @@
       $('#rShape').value = f.shape;
     }
     $('#rPhotoRemove').checked = f.removePhoto;
-    if ($('#rCodeRed')) $('#rCodeRed').checked = f.codeRed;
     toggleScheduleRow();
   }
 
@@ -2485,17 +2607,24 @@
   }
 
   function renderLegend() {
+    const row = (key, label) => `<div class="legend-item">${PipeMarkers.legend(key)}${esc(label)}</div>`;
     $('#legend').innerHTML = `
-      <div class="legend-title">Report type</div>
-      ${Object.values(TYPES).map((t) => `
-        <div class="legend-item"><span class="legend-swatch" style="--c:${t.color}"></span>${esc(t.label)}</div>`).join('')}
+      <div class="legend-title">Markers</div>
+      ${Object.entries(TYPES).map(([k, t]) => row(k, t.label)).join('')}
+      ${row('unverified', 'Not yet verified')}
+      ${homeArea() ? row('home', 'Your home') : ''}
       <div class="legend-sep"></div>
-      <div class="legend-item"><span class="legend-swatch solid"></span>Verified</div>
-      <div class="legend-item"><span class="legend-swatch dashed"></span>Not yet verified</div>
-      <div class="legend-item"><span class="legend-swatch dashed"></span>Report area (geofence)</div>
-      ${homeArea() ? `
+      <div class="legend-item"><span class="legend-swatch dashed"></span>Report area (verified only)</div>
       <div class="legend-sep"></div>
-      <div class="legend-item"><span class="legend-swatch" style="--c:#1b6f8f"></span>Your home</div>` : ''}`;
+      <div class="legend-title">Grouped reports</div>
+      <div class="freq-bar"><span class="f1"></span><span class="f2"></span><span class="f3"></span><span class="f4"></span><span class="f5"></span></div>
+      <div class="freq-ends"><span>Fewer</span><span>More</span></div>
+      <div class="legend-item" style="margin-top:6px"><span class="cluster-key"></span>Grouped, not yet verified</div>
+      ${state.hotOn ? `
+      <div class="legend-sep"></div>
+      <div class="legend-title">Frequently affected</div>
+      <div class="heat-bar"></div>
+      <div class="freq-ends"><span>2 overlap</span><span>Many</span></div>` : ''}`;
   }
 
   async function init() {
@@ -2522,8 +2651,7 @@
     $('#fStatus').addEventListener('change', (e) => { state.filters.status = e.target.value; refresh({ keepView: true }); });
     $('#fVerify').addEventListener('change', (e) => { state.filters.verify = e.target.value; refresh({ keepView: true }); });
 
-    if ($('#fArea')) fillSelect($('#fArea'), [['', 'All barangays'], ...AREAS.map((a) => [a.name, a.name])], '');
-    [['#fScope', 'scope'], ['#fArea', 'area'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
+    [['#fScope', 'scope'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
       const el = $(sel);
       if (el) el.addEventListener('change', (e) => { state.filters[key] = e.target.value; refresh({ keepView: true }); });
     });
@@ -2596,11 +2724,21 @@
       if (e.key === 'Escape' && state.placing) { stopPlacing(); clearDraftMarker(); }
     });
 
-    $('#toggleHotspots').addEventListener('click', (e) => {
-      const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
-      e.currentTarget.setAttribute('aria-pressed', String(on));
-      e.currentTarget.textContent = on ? 'Hide frequently affected areas' : 'Show frequently affected areas';
-      if (on) hotspotLayer.addTo(map); else map.removeLayer(hotspotLayer);
+    $('#toggleHotspots').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const on = btn.getAttribute('aria-pressed') !== 'true';
+      state.hotOn = on;
+      btn.setAttribute('aria-pressed', String(on));
+      btn.textContent = on ? 'Hide frequently affected areas' : 'Show frequently affected areas';
+      if (on) {
+        hotspotLayer.addTo(map);
+        await loadHotspots();
+        if (hot.data && !hot.data.cells.length) toast('No areas overlap yet. Two or more verified reports must cover the same ground.', 'info');
+      } else {
+        map.removeLayer(hotspotLayer);
+        map.closeTooltip(hotTip);
+      }
+      renderLegend();
     });
 
     $('#btnLocate').addEventListener('click', () => map.locate({ setView: true, maxZoom: 16 }));
@@ -2608,7 +2746,7 @@
     map.on('locationfound', (e) => {
       if (meMarker) map.removeLayer(meMarker);
       meMarker = L.circleMarker(e.latlng, {
-        radius: 8, color: '#10303b', weight: 3, fillColor: '#5cc8d7', fillOpacity: 1
+        radius: 8, color: '#0a3d49', weight: 3, fillColor: '#2db6cc', fillOpacity: 1
       }).addTo(map).bindTooltip('You are here');
     });
     map.on('locationerror', () => toast('Could not get your location. Check your browser permissions.', 'error'));

@@ -25,16 +25,26 @@
                 fail("Pick a spot inside Bacolod City.");
             }
 
+            $barangay = input('barangay');
+            if (!in_array($barangay, BARANGAYS, true)) {
+                fail("Choose your barangay.");
+            }
+
             $latF   = round((float) $lat, 6);
             $lngF   = round((float) $lng, 6);
             $userId = $me['id'];
 
             $stmt = $conn->prepare(
-                "INSERT INTO user_homes (user_id, lat, lng)
-                 VALUES (?, ?, ?)
-                 ON DUPLICATE KEY UPDATE lat = ?, lng = ?"
+                "INSERT INTO user_homes (user_id, lat, lng, barangay)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE lat = ?, lng = ?, barangay = ?"
             );
-            $stmt->bind_param("idddd", $userId, $latF, $lngF, $latF, $lngF);
+            $stmt->bind_param("iddsdds", $userId, $latF, $lngF, $barangay, $latF, $lngF, $barangay);
+            $stmt->execute();
+            $stmt->close();
+
+            $stmt = $conn->prepare("UPDATE user_login SET address = ? WHERE id = ?");
+            $stmt->bind_param("si", $barangay, $userId);
             $stmt->execute();
             $stmt->close();
 
@@ -42,7 +52,7 @@
                 "status"  => "success",
                 "message" => "Home saved.",
             "notified" => notifyUserForActiveAdvisories($conn, $userId, $latF, $lngF),
-                "home"    => ["lat" => $latF, "lng" => $lngF]
+                "home"    => ["lat" => $latF, "lng" => $lngF, "barangay" => $barangay]
             ]);
         }
 
@@ -52,14 +62,14 @@
 
             if ($me['role'] === 'resident') {
                 $userId = $me['id'];
-                $stmt = $conn->prepare("SELECT lat, lng FROM user_homes WHERE user_id = ?");
+                $stmt = $conn->prepare("SELECT lat, lng, barangay FROM user_homes WHERE user_id = ?");
                 $stmt->bind_param("i", $userId);
                 $stmt->execute();
                 $row = $stmt->get_result()->fetch_assoc();
                 $stmt->close();
 
                 if ($row) {
-                    $home = ["lat" => (float) $row['lat'], "lng" => (float) $row['lng']];
+                    $home = ["lat" => (float) $row['lat'], "lng" => (float) $row['lng'], "barangay" => $row['barangay']];
                 }
             }
 

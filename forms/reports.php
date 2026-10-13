@@ -7,8 +7,8 @@
     }
 
     const REPORT_SELECT =
-        "SELECT id, type, status, title, description, area, lat, lng, source, verified,
-                author_id, author, radius_m, geofence, code_red, photo,
+        "SELECT id, type, status, title, description, lat, lng, source, verified,
+                author_id, author, radius_m, geofence, photo,
                 UNIX_TIMESTAMP(created_at) * 1000 AS created_ms,
                 UNIX_TIMESTAMP(resolved_at) * 1000 AS resolved_ms,
                 UNIX_TIMESTAMP(starts_at)  * 1000 AS starts_ms,
@@ -23,7 +23,6 @@
             "status"    => $r['status'],
             "title"     => $r['title'],
             "desc"      => $r['description'] !== null ? $r['description'] : '',
-            "area"      => $r['area'],
             "lat"       => (float) $r['lat'],
             "lng"       => (float) $r['lng'],
             "source"    => $r['source'],
@@ -32,7 +31,6 @@
             "author"    => $r['author'],
             "radius"    => (int) $r['radius_m'],
             "geofence"  => geofenceOf($r),
-            "codeRed"   => (int) $r['code_red'] === 1,
             "photo"     => $r['photo'] !== null && $r['photo'] !== '' ? $r['photo'] : null,
             "resolvedAt" => $r['resolved_ms'] !== null ? (int) $r['resolved_ms'] : null,
             "createdAt" => (int) $r['created_ms'],
@@ -95,11 +93,7 @@
             logReport($conn, $id, $title, 'geofence', coverageText($old), coverageText($new), $who, $key);
         }
 
-        if ((int) $old['code_red'] !== (int) $new['code_red']) {
-            logReport($conn, $id, $title, 'codered', null, (string) (int) $new['code_red'], $who, $key);
-        }
-
-        foreach (['type', 'title', 'description', 'area', 'lat', 'lng'] as $col) {
+        foreach (['type', 'title', 'description', 'lat', 'lng'] as $col) {
             if ((string) $old[$col] !== (string) $new[$col]) {
                 logReport($conn, $id, $title, 'edited', null, null, $who, $key);
                 break;
@@ -130,7 +124,6 @@
             $type  = input('type');
             $title = input('title');
             $desc  = input('desc');
-            $area  = input('area');
             $lat   = input('lat');
             $lng   = input('lng');
 
@@ -140,7 +133,6 @@
             if ($title === '')                          $errors[] = "Add a short title so others know what is happening.";
             if (textLen($title) > 90)                   $errors[] = "The title is too long (90 characters at most).";
             if (textLen($desc) > 500)                   $errors[] = "The details are too long (500 characters at most).";
-            if ($area === '' || textLen($area) > 60)    $errors[] = "Choose the barangay.";
             if (!validPoint($lat, $lng))                $errors[] = "The pinned location must be inside Bacolod City.";
 
             $status   = 'reported';
@@ -148,7 +140,6 @@
             $radius   = typeDefaultRadius($type);
             $geofence = null;
             $photo    = savePhotoUpload($errors);
-            $codeRed  = ($admin && input('codeRed') === '1') ? 1 : 0;
             $startsAt = null;
             $endsAt   = null;
 
@@ -186,25 +177,24 @@
             $stmt = $conn->prepare(
                 "INSERT INTO reports
                     (type, status, title, description, area, lat, lng,
-                     source, verified, author_id, author, starts_at, ends_at, radius_m, geofence, code_red, photo)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, ?, ?, ?)"
+                     source, verified, author_id, author, starts_at, ends_at, radius_m, geofence, photo)
+                 VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, ?, ?)"
             );
 
             $stmt->bind_param(
-                "sssssddsissiiisis",
-                $type, $status, $title, $desc, $area, $latF, $lngF,
-                $source, $verified, $authorKey, $authorName, $startsAt, $endsAt, $radius, $geofence, $codeRed, $photo
+                "ssssddsissiiiss",
+                $type, $status, $title, $desc, $latF, $lngF,
+                $source, $verified, $authorKey, $authorName, $startsAt, $endsAt, $radius, $geofence, $photo
             );
             $stmt->execute();
             $newId = $conn->insert_id;
-            $notified = ($official || $codeRed === 1) ? notifyAffected($conn, $newId) : 0;
+            $notified = $official ? notifyAffected($conn, $newId) : 0;
             logReport($conn, $newId, $title, 'created', null, $official ? 'official, ' . $status : $status, $authorName, $authorKey);
             $stmt->close();
 
             respond([
                 "status"  => "success",
-                "message" => $official ? "Announcement posted." . notifySummary($notified)
-                          : ($codeRed === 1 ? "Code red report posted." . notifySummary($notified) : "Report submitted. An admin can verify it."),
+                "message" => $official ? "Announcement posted." . notifySummary($notified) : "Report submitted. An admin can verify it.",
                 "notified" => $notified,
                 "report"  => reportOut(fetchReport($conn, $newId))
             ]);
@@ -247,12 +237,6 @@
                 else { $set[] = ["description = ?", "s", $v]; $contentChanged = true; }
             }
 
-            if (hasInput('area')) {
-                $v = input('area');
-                if ($v === '' || textLen($v) > 60) { $errors[] = "Choose the barangay."; }
-                else { $set[] = ["area = ?", "s", $v]; $contentChanged = true; }
-            }
-
             if (hasInput('lat') || hasInput('lng')) {
                 if (!validPoint(input('lat'), input('lng'))) {
                     $errors[] = "The pinned location must be inside Bacolod City.";
@@ -268,10 +252,6 @@
                 $allowed = $admin ? REPORT_STATUSES : ['reported', 'ongoing', 'resolved'];
                 if (!in_array($v, $allowed, true)) { $errors[] = "That status is not allowed."; }
                 else { $set[] = ["status = ?", "s", $v]; }
-            }
-
-            if ($admin && hasInput('codeRed')) {
-                $set[] = ["code_red = ?", "i", input('codeRed') === '1' ? 1 : 0];
             }
 
             $typeNow = hasInput('type') ? input('type') : $row['type'];
@@ -343,13 +323,28 @@
             $after = fetchReport($conn, $id);
             if ($row['photo'] && $after['photo'] !== $row['photo']) deletePhotoFile($row['photo']);
             logChanges($conn, $row, $after, $me);
-            $notified = $admin ? notifyAffected($conn, $id) : 0;
+            $justResolved = $row['status'] !== 'resolved' && $after['status'] === 'resolved';
+            if ($row['status'] === 'resolved' && $after['status'] !== 'resolved') {
+                forgetResolvedEmails($conn, $id);
+            }
+
+            $notified = $admin && !$justResolved ? notifyAffected($conn, $id) : 0;
+            $resolvedMailed = $admin && $justResolved ? notifyResolved($conn, $id) : 0;
 
             $justVerified = $admin && (int) $row['verified'] === 0 && (int) $after['verified'] === 1;
 
+            if ($resolvedMailed > 0) {
+                $text = "Marked as resolved. " . $resolvedMailed . " resident" . ($resolvedMailed === 1 ? "" : "s")
+                      . " with a home in the area " . ($resolvedMailed === 1 ? "was" : "were") . " emailed."
+                      . notifySummary(0);
+            } else {
+                $text = ($justResolved ? "Marked as resolved." : ($justVerified ? "Report verified." : "Changes saved."))
+                      . notifySummary($notified);
+            }
+
             respond([
                 "status"  => "success",
-                "message" => ($justVerified ? "Report verified." : "Changes saved.") . notifySummary($notified),
+                "message" => $text,
                 "report"  => reportOut(fetchReport($conn, $id))
             ]);
         }
@@ -364,7 +359,7 @@
                 fail("That report no longer exists.", 404);
             }
             if (!reportIsAlerting($row)) {
-                fail("Only open verified reports and open code red reports send notices.");
+                fail("Only open verified reports send notices.");
             }
 
             $notified = notifyAffected($conn, $id, null, true);

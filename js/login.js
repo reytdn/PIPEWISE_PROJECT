@@ -38,18 +38,18 @@
     return Swal.fire({ icon, title, html, confirmButtonText: 'OK' });
   }
 
-  async function post(url, fields) {
-    const res = await fetch(url, {
-      method: 'POST',
-      body: new URLSearchParams(fields),
-      credentials: 'same-origin'
+  // AJAX call to a PHP file; the PHP answers with JSON
+  function post(url, fields) {
+    return new Promise((resolve, reject) => {
+      jQuery.ajax({ url, method: 'POST', data: fields, dataType: 'json' })
+        .done(resolve)
+        .fail((xhr) => {
+          if (xhr.responseJSON) return resolve(xhr.responseJSON);
+          if (xhr.status === 404) return reject(new Error(`File not found: ${url}`));
+          if (xhr.status === 0) return reject(new Error('The server did not answer.'));
+          reject(new Error('Unexpected reply from ' + url + ': ' + String(xhr.responseText || '').replace(/<[^>]*>/g, ' ').trim().slice(0, 160)));
+        });
     });
-    if (res.status === 404) throw new Error(`File not found: ${url}`);
-    const text = await res.text();
-    try { return JSON.parse(text); }
-    catch (e) {
-      throw new Error('Unexpected reply from ' + url + ': ' + text.replace(/<[^>]*>/g, ' ').trim().slice(0, 160));
-    }
   }
 
   function serverDown(err) {

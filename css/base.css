@@ -1,13 +1,13 @@
 :root {
-  --ink: #10303b;
-  --ink-soft: #1b4452;
-  --paper: #f2f6f5;
+  --ink: #0a3d49;
+  --ink-soft: #0f5565;
+  --paper: #eef9fa;
   --surface: #ffffff;
-  --line: #d3dedc;
-  --muted: #587079;
-  --aqua: #5cc8d7;
-  --water: #1b6f8f;
-  --water-dark: #0e4c66;
+  --line: #cde5e8;
+  --muted: #4a7480;
+  --aqua: #2db6cc;
+  --water: #08768b;
+  --water-dark: #055868;
 
   --t-interruption: #c9443b;
   --t-maintenance: #d98e04;
@@ -18,6 +18,12 @@
   --s-scheduled: #2f78a8;
   --s-ongoing: #c9443b;
   --s-resolved: #3f8a5f;
+
+  --f-1: #3f8a5f;
+  --f-2: #8fa63a;
+  --f-3: #d98e04;
+  --f-4: #dd6b2d;
+  --f-5: #c9443b;
 
   --radius: 8px;
   --bar: 58px;

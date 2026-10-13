@@ -10,8 +10,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-  <link rel="stylesheet" href="css/base.css?v=8">
-  <link rel="stylesheet" href="css/style.css?v=9">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
+  <link rel="stylesheet" href="css/base.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=12">
   <script>
     (function () {
       try {
@@ -91,10 +92,6 @@
                 <option value="mine">My reports</option>
                 <option value="others">Other users' reports</option>
               </select>
-            </label>
-            <label>
-              <span class="sr-only">Barangay</span>
-              <select id="fArea"></select>
             </label>
           </div>
           <div class="filter-row filter-row-2">
@@ -214,15 +211,18 @@
   </dialog>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+  <script src="js/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/leaflet-geosearch@3.11.0/dist/bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
-    if (!window.L || !window.Swal) {
+    if (!window.L || !window.Swal || !L.markerClusterGroup || !window.jQuery) {
       var b = document.getElementById('bootError');
-      b.textContent = 'A required library (Leaflet map or SweetAlert2) did not load. Check your internet connection and reload.';
+      b.textContent = 'A required library (Leaflet, marker clustering, jQuery or SweetAlert2) did not load. Check your internet connection and reload.';
       b.hidden = false;
     }
   </script>
-  <script src="js/map.js?v=9"></script>
+  <script src="js/markers.js?v=1"></script>
+  <script src="js/map.js?v=12"></script>
 </body>
 </html>

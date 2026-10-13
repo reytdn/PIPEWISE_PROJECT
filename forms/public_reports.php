@@ -8,7 +8,7 @@
         $reports = [];
 
         $result = $conn->query(
-            "SELECT id, type, status, title, description, area, lat, lng, source, verified,
+            "SELECT id, type, status, title, description, lat, lng, source, verified,
                     radius_m, geofence, photo,
                     UNIX_TIMESTAMP(created_at) * 1000 AS created_ms,
                     UNIX_TIMESTAMP(starts_at)  * 1000 AS starts_ms,
@@ -27,7 +27,6 @@
                 "status"    => $r['status'],
                 "title"     => $r['title'],
                 "desc"      => $r['description'] !== null ? $r['description'] : '',
-                "area"      => $r['area'],
                 "lat"       => (float) $r['lat'],
                 "lng"       => (float) $r['lng'],
                 "source"    => $r['source'],
@@ -41,7 +40,15 @@
             ];
         }
 
-        respond(["status" => "success", "reports" => $reports]);
+        // all-time total (resolved reports included) and today's scheduled announcements
+        $all   = (int) $conn->query("SELECT COUNT(*) FROM reports WHERE source = 'official' OR verified = 1")->fetch_row()[0];
+        $today = (int) $conn->query("SELECT COUNT(*) FROM reports WHERE source = 'official' AND DATE(starts_at) = CURDATE()")->fetch_row()[0];
+
+        respond([
+            "status"  => "success",
+            "reports" => $reports,
+            "totals"  => ["all" => $all, "scheduledToday" => $today]
+        ]);
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "public_reports.php");
