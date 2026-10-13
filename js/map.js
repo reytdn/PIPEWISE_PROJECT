@@ -8,7 +8,7 @@
     geofenceRadius: 1000,
     homeViewM: 1000,
     maxPhotoPx: 1600,
-    homeIcon: { url: 'assets/images/HOMEMARKER.png', size: [44, 44], anchor: [22, 44] },
+    homeIcon: { url: 'assets/markers/home.png', size: [38, 48], anchor: [19, 48] },
     geoKey: 'pipesense.geo.v3',
     welcomeKey: 'pipesense.welcomed',
     cityViewbox: '122.84,10.80,123.04,10.55',
@@ -16,10 +16,15 @@
   };
 
   const TYPES = {
-    interruption: { label: 'Water interruption', color: '#c9443b' },
-    maintenance:  { label: 'Maintenance',        color: '#d98e04' },
-    pressure:     { label: 'Low pressure',       color: '#2f78a8' },
-    quality:      { label: 'Water quality',      color: '#7a5ba6' }
+    interruption: { label: 'Water interruption', color: '#c9443b', marker: 'assets/markers/interruption.png' },
+    maintenance:  { label: 'Maintenance',        color: '#d98e04', marker: 'assets/markers/maintenance.png' },
+    pressure:     { label: 'Low pressure',       color: '#2f78a8', marker: 'assets/markers/pressure.png' },
+    quality:      { label: 'Water quality',      color: '#7a5ba6', marker: 'assets/markers/quality.png' }
+  };
+
+  const MARKERS = {
+    unverified: 'assets/markers/unverified.png',
+    home: 'assets/markers/home.png'
   };
 
   // starting radius in meters for each report type
@@ -107,13 +112,6 @@
     const a = Math.sin(dLat / 2) ** 2 +
       Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(a));
-  }
-
-  function nearestArea(lat, lng) {
-    return AREAS.reduce((best, a) => {
-      const d = haversine(lat, lng, a.lat, a.lng);
-      return d < best.d ? { name: a.name, d } : best;
-    }, { name: AREAS[0].name, d: Infinity }).name;
   }
 
   function pointInPoly(lat, lng, pts) {
@@ -226,7 +224,7 @@
       showCancelButton: true,
       confirmButtonText: confirmText,
       cancelButtonText: 'Cancel',
-      confirmButtonColor: danger ? '#c9443b' : '#1b6f8f',
+      confirmButtonColor: danger ? '#c9443b' : '#08768b',
       cancelButtonColor: '#587079',
       reverseButtons: true,
       focusCancel: true
@@ -396,7 +394,7 @@
 
   function affectsHome(r) {
     if (r.status === 'resolved') return false;
-    if (!r.verified && !r.codeRed) return false;
+    if (!r.verified) return false;
     const h = homeArea();
     if (!h) return false;
     return reportCovers(r, h.lat, h.lng);
@@ -406,7 +404,7 @@
     view: 'reports',
     from: 'reports',
     selectedId: null,
-    filters: { q: '', type: '', status: '', verify: '', scope: '', area: '', from: '', to: '' },
+    filters: { q: '', type: '', status: '', verify: '', scope: '', from: '', to: '' },
     placing: false,
     onPlace: null,
     editingId: null,
@@ -453,16 +451,14 @@
   const CHECK_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.500 6.300l2.400 2.400L9.500 3.600" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function pinIcon(r) {
-    const t = TYPES[r.type] || { color: '#587079' };
+    const src = r.verified && TYPES[r.type] ? TYPES[r.type].marker : MARKERS.unverified;
     const sel = r.id === state.selectedId ? ' is-selected' : '';
-    const ver = r.verified ? 'is-verified' : 'is-unverified';
-    const inner = r.verified ? CHECK_SVG : '<span class="pin-q">?</span>';
     return L.divIcon({
       className: 'pin-wrap',
-      html: `<div class="pin ${ver} st-${r.status}${sel}${r.codeRed ? ' is-codered' : ''}" style="--c:${t.color}"><span>${inner}</span></div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 28],
-      popupAnchor: [0, -28]
+      html: `<img class="pin-img st-${r.status}${sel}" src="${src}" alt="">`,
+      iconSize: [38, 48],
+      iconAnchor: [19, 48],
+      popupAnchor: [0, -44]
     });
   }
 
@@ -472,7 +468,7 @@
       : '';
     return photo +
       `<div class="popup-title">${esc(r.title)}</div>` +
-      `<div class="popup-sub">${esc(TYPES[r.type]?.label)} in ${esc(r.area)}, ${esc(STATUSES[r.status])}</div>` +
+      `<div class="popup-sub">${esc(TYPES[r.type]?.label)}, ${esc(STATUSES[r.status])}</div>` +
       (r.desc ? `<p class="popup-desc">${esc(r.desc)}</p>` : '');
   }
 
@@ -506,20 +502,28 @@
     });
   }
 
+  function reportSpots() {
+    const cells = {};
+    db.reports.forEach((r) => {
+      const key = Math.round(r.lat / 0.003) + ':' + Math.round(r.lng / 0.003);
+      const c = cells[key] || (cells[key] = { n: 0, lat: 0, lng: 0 });
+      c.n++;
+      c.lat += r.lat;
+      c.lng += r.lng;
+    });
+    return Object.values(cells).map((c) => ({ n: c.n, lat: c.lat / c.n, lng: c.lng / c.n }));
+  }
+
   function renderHotspots() {
     hotspotLayer.clearLayers();
-    const counts = areaCounts();
-    AREAS.forEach((a) => {
-      const n = counts[a.name] || 0;
-      if (!n) return;
-      L.circle([a.lat, a.lng], {
-        radius: 260 + n * 110,
+    reportSpots().filter((c) => c.n >= CONFIG.recurringThreshold).forEach((c) => {
+      L.circle([c.lat, c.lng], {
+        radius: 260 + c.n * 110,
         color: '#c9443b',
-        weight: 1.500,
+        weight: 1.5,
         fillColor: '#c9443b',
-        fillOpacity: Math.min(0.12 + n * 0.06, 0.45),
-        interactive: true
-      }).bindTooltip(`${a.name}: ${n} report${n > 1 ? 's' : ''}`).addTo(hotspotLayer);
+        fillOpacity: Math.min(0.12 + c.n * 0.06, 0.45)
+      }).bindTooltip(`${c.n} reports around here`).addTo(hotspotLayer);
     });
   }
 
@@ -540,7 +544,7 @@
   }
 
   function filteredReports(mode = 'list') {
-    const { q, type, status, verify, scope, area, from, to } = state.filters;
+    const { q, type, status, verify, scope, from, to } = state.filters;
     const needle = q.trim().toLowerCase();
     const fromMs = from ? new Date(from + 'T00:00:00').getTime() : null;
     const toMs = to ? new Date(to + 'T23:59:59.999').getTime() : null;
@@ -550,7 +554,6 @@
         else if (isAdmin() && r.status === 'resolved') return false;
         if (scope === 'mine' && !isOwn(r)) return false;
         if (scope === 'others' && isOwn(r)) return false;
-        if (area && r.area !== area) return false;
         if (fromMs !== null && r.createdAt < fromMs) return false;
         if (toMs !== null && r.createdAt > toMs) return false;
         if (type && r.type !== type) return false;
@@ -558,7 +561,7 @@
         if (verify === 'verified' && !r.verified) return false;
         if (verify === 'unverified' && r.verified) return false;
         if (needle) {
-          const hay = `${r.title} ${r.desc} ${r.area} ${r.author || ''}`.toLowerCase();
+          const hay = `${r.title} ${r.desc} ${r.author || ''}`.toLowerCase();
           if (!hay.includes(needle)) return false;
         }
         return true;
@@ -566,11 +569,11 @@
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  const emptyFilters = () => ({ q: '', type: '', status: '', verify: '', scope: '', area: '', from: '', to: '' });
+  const emptyFilters = () => ({ q: '', type: '', status: '', verify: '', scope: '', from: '', to: '' });
 
   function syncFilterControls() {
     [['#fSearch', 'q'], ['#fType', 'type'], ['#fStatus', 'status'], ['#fVerify', 'verify'],
-     ['#fScope', 'scope'], ['#fArea', 'area'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
+     ['#fScope', 'scope'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
       const el = $(sel);
       if (el) el.value = state.filters[key];
     });
@@ -599,7 +602,7 @@
 
   function filtersActive() {
     const f = state.filters;
-    return !!(f.q || f.type || f.status || f.verify || f.scope || f.area || f.from || f.to);
+    return !!(f.q || f.type || f.status || f.verify || f.scope || f.from || f.to);
   }
 
   const statusPill = (r) =>
@@ -609,7 +612,6 @@
     ? `<span class="pill pill-verified">${CHECK_SVG.replace('<svg', '<svg width="11" height="11"')}Verified</span>`
     : '<span class="pill pill-unverified">Unverified</span>';
 
-  const codePill = (r) => r.codeRed ? '<span class="pill pill-codered">Code red</span>' : '';
   const minePill = (r) => isOwn(r) ? '<span class="pill pill-mine">Yours</span>' : '';
   const affectsPill = (r) => affectsHome(r) ? '<span class="pill pill-affects">Affects your home</span>' : '';
 
@@ -643,9 +645,9 @@
         <button type="button" class="report-card${r.id === state.selectedId ? ' is-selected' : ''}"
                 data-id="${esc(r.id)}" style="--c:${TYPES[r.type]?.color || '#587079'}">
           <h3>${esc(r.title)}</h3>
-          <div class="where">${esc(TYPES[r.type]?.label)} in ${esc(r.area)} &middot; ${fmtDate.format(r.createdAt)}</div>
+          <div class="where">${esc(TYPES[r.type]?.label)} &middot; ${fmtDate.format(r.createdAt)}</div>
           <div class="pills">
-            ${codePill(r)}${statusPill(r)}${verifyPill(r)}${sourcePill(r)}${minePill(r)}${affectsPill(r)}
+            ${statusPill(r)}${verifyPill(r)}${sourcePill(r)}${minePill(r)}${affectsPill(r)}
             <span class="time-ago">${ago(r.createdAt)}</span>
           </div>
         </button>
@@ -700,7 +702,7 @@
 
         <div class="detail-head" style="--c:${t.color}">
           <h2>${esc(r.title)}</h2>
-          <div class="pills">${codePill(r)}${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
+          <div class="pills">${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
         </div>
 
         ${alertBox}
@@ -709,7 +711,6 @@
 
         <dl class="facts">
           <dt>Type</dt><dd>${esc(t.label)}</dd>
-          <dt>Barangay</dt><dd>${esc(r.area)}</dd>
           <dt>Coordinates</dt><dd>${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}</dd>
           <dt>Posted by</dt><dd>${esc(r.author || 'Anonymous resident')}</dd>
           <dt>Posted</dt><dd>${fmtDate.format(r.createdAt)} (${ago(r.createdAt)})</dd>
@@ -745,12 +746,6 @@
       </div>`;
   }
 
-  function areaCounts() {
-    const counts = {};
-    db.reports.forEach((r) => { counts[r.area] = (counts[r.area] || 0) + 1; });
-    return counts;
-  }
-
   function renderInsights() {
     const box = $('#viewInsights');
     const rs = db.reports;
@@ -777,22 +772,6 @@
         <span class="bar-num">${x.n}</span>
       </div>`).join('');
 
-    const counts = areaCounts();
-    const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    const areaRows = ranked.length ? ranked.map(([name, n]) => {
-      const mine = rs.filter((r) => r.area === name);
-      const open = mine.filter((r) => r.status !== 'resolved').length;
-      const topType = Object.keys(TYPES)
-        .map((k) => [k, mine.filter((r) => r.type === k).length])
-        .sort((a, b) => b[1] - a[1])[0];
-      return `
-        <div class="area-row">
-          <span class="area-name">${esc(name)}${n >= CONFIG.recurringThreshold ? '<span class="flag">Frequently affected</span>' : ''}</span>
-          <span class="area-count">${n}</span>
-          <span class="area-sub">${open} still open. Most common: ${esc(TYPES[topType[0]].label.toLowerCase())}.</span>
-        </div>`;
-    }).join('') : '<p class="lead">No reports yet.</p>';
-
     box.innerHTML = `
       <div class="insights">
         <h2>Water service summary</h2>
@@ -813,11 +792,6 @@
         <div class="block">
           <h3>Reports by status</h3>
           ${bars(byStatus, maxStatus)}
-        </div>
-
-        <div class="block">
-          <h3>Areas with the most reports</h3>
-          ${areaRows}
         </div>
 
         <div class="insight-actions">
@@ -888,9 +862,9 @@
       <div class="queue-item" style="--c:${t.color}">
         <button type="button" class="queue-main" data-action="open" data-id="${esc(r.id)}">
           <strong>${esc(r.title)}</strong>
-          <span>${esc(t.label)} in ${esc(r.area)}, ${ago(r.createdAt)}</span>
+          <span>${esc(t.label)}, ${ago(r.createdAt)}</span>
         </button>
-        <div class="pills">${codePill(r)}${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
+        <div class="pills">${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
         <div class="queue-actions">${actions}</div>
       </div>`;
   }
@@ -1095,7 +1069,7 @@
     if (a === 'test-mail' && isAdmin()) {
       const res = await Swal.fire({
         title: 'Send a test email',
-        text: 'Checks that residents can receive code red and interruption emails.',
+        text: 'Checks that residents can receive water service emails.',
         input: 'email',
         inputPlaceholder: 'you@gmail.com',
         showCancelButton: true,
@@ -1307,10 +1281,6 @@
     fillSelect($('#rStatus'), statusKeys.map((k) => [k, STATUSES[k]]),
       report?.status || (official ? 'scheduled' : 'reported'));
     $('#rStatusField').hidden = !(admin || editing);
-    if ($('#codeRedField')) {
-      $('#codeRedField').hidden = !admin;
-      $('#rCodeRed').checked = !!report?.codeRed;
-    }
 
     $('#officialBox').hidden = !admin;
     $('#rOfficial').checked = editing ? report.source === 'official' : official;
@@ -1400,7 +1370,6 @@
     const payload = {
       action: editing ? 'update' : 'create',
       type: $('#rType').value,
-      area: nearestArea(state.draft.lat, state.draft.lng),
       title,
       desc: $('#rDesc').value.trim(),
       lat: state.draft.lat,
@@ -1415,7 +1384,6 @@
       payload.geofence = kind !== 'circle' && state.draftGeo ? JSON.stringify(state.draftGeo) : '';
       if (state.verifying) payload.verified = '1';
       payload.official = official ? '1' : '0';
-      payload.codeRed = $('#rCodeRed') && $('#rCodeRed').checked ? '1' : '0';
       payload.startsAt = official && startsAt ? startsAt : '';
       payload.endsAt = official && endsAt ? endsAt : '';
     }
@@ -1513,10 +1481,10 @@
   }
 
   function exportCSV() {
-    const head = ['id', 'type', 'title', 'barangay', 'status', 'verified', 'source', 'latitude', 'longitude', 'posted_by', 'posted_at'];
+    const head = ['id', 'type', 'title', 'status', 'verified', 'source', 'latitude', 'longitude', 'posted_by', 'posted_at'];
     const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = db.reports.map((r) => [
-      r.id, TYPES[r.type]?.label, r.title, r.area, STATUSES[r.status],
+      r.id, TYPES[r.type]?.label, r.title, STATUSES[r.status],
       r.verified ? 'yes' : 'no', r.source, r.lat, r.lng, r.author || '', new Date(r.createdAt).toISOString()
     ].map(q).join(','));
     const blob = new Blob([[head.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
@@ -1671,7 +1639,7 @@
       title: 'Your home'
     }).addTo(homeLayer);
     if (isResident()) {
-      hm.bindTooltip('Your home. Drag to move it.', { direction: 'top', offset: [0, -40] });
+      hm.bindTooltip('Your home. Drag to move it.', { direction: 'top', offset: [0, -46] });
       hm.on('dragstart', () => { state.draggingHome = true; });
       hm.on('dragend', () => moveHomeByDrag(hm));
     }
@@ -1689,7 +1657,7 @@
     if (homeImgOk === false) {
       return L.divIcon({
         className: 'pin-wrap',
-        html: '<div style="width:34px;height:34px;border-radius:50%;background:#1b6f8f;border:3px solid #fff;' +
+        html: '<div style="width:34px;height:34px;border-radius:50%;background:#08768b;border:3px solid #fff;' +
               'box-shadow:0 2px 6px rgba(16,48,59,.45);display:grid;place-items:center;color:#fff">' +
               '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z" fill="currentColor"/></svg></div>',
         iconSize: [34, 34],
@@ -2139,7 +2107,7 @@
       const items = db.reports
         .filter((r) => r.status === 'resolved')
         .filter((r) => inHistRange(histTime(r)))
-        .filter((r) => !needle || `${r.title} ${r.desc} ${r.area} ${r.author || ''}`.toLowerCase().includes(needle))
+        .filter((r) => !needle || `${r.title} ${r.desc} ${r.author || ''}`.toLowerCase().includes(needle))
         .sort((a, b) => histTime(b) - histTime(a));
 
       body.innerHTML = `<p class="lead" style="margin:0 0 6px">${items.length} resolved report${items.length === 1 ? '' : 's'}.</p>` +
@@ -2149,7 +2117,7 @@
             <div class="queue-item" style="--c:${t.color}">
               <button type="button" class="queue-main" data-action="open" data-id="${esc(r.id)}">
                 <strong>${esc(r.title)}</strong>
-                <span>${esc(t.label)} in ${esc(r.area)}. ${r.resolvedAt ? 'Resolved ' + fmtDate.format(r.resolvedAt) : 'Posted ' + fmtDate.format(r.createdAt)}</span>
+                <span>${esc(t.label)}. ${r.resolvedAt ? 'Resolved ' + fmtDate.format(r.resolvedAt) : 'Posted ' + fmtDate.format(r.createdAt)}</span>
               </button>
               <div class="pills">${verifyPill(r)}${sourcePill(r)}</div>
               <div class="queue-actions">
@@ -2415,8 +2383,7 @@
       radius: $('#rRadius') ? $('#rRadius').value : '',
       range: $('#rRange') ? $('#rRange').value : '',
       shape: $('#rShape') ? $('#rShape').value : 'circle',
-      removePhoto: $('#rPhotoRemove').checked,
-      codeRed: $('#rCodeRed') ? $('#rCodeRed').checked : false
+      removePhoto: $('#rPhotoRemove').checked
     };
   }
 
@@ -2434,7 +2401,6 @@
       $('#rShape').value = f.shape;
     }
     $('#rPhotoRemove').checked = f.removePhoto;
-    if ($('#rCodeRed')) $('#rCodeRed').checked = f.codeRed;
     toggleScheduleRow();
   }
 
@@ -2485,17 +2451,14 @@
   }
 
   function renderLegend() {
+    const row = (src, label) => `<div class="legend-item"><img class="legend-pin" src="${src}" alt="">${esc(label)}</div>`;
     $('#legend').innerHTML = `
-      <div class="legend-title">Report type</div>
-      ${Object.values(TYPES).map((t) => `
-        <div class="legend-item"><span class="legend-swatch" style="--c:${t.color}"></span>${esc(t.label)}</div>`).join('')}
+      <div class="legend-title">Markers</div>
+      ${Object.values(TYPES).map((t) => row(t.marker, t.label)).join('')}
+      ${row(MARKERS.unverified, 'Not yet verified')}
+      ${homeArea() ? row(MARKERS.home, 'Your home') : ''}
       <div class="legend-sep"></div>
-      <div class="legend-item"><span class="legend-swatch solid"></span>Verified</div>
-      <div class="legend-item"><span class="legend-swatch dashed"></span>Not yet verified</div>
-      <div class="legend-item"><span class="legend-swatch dashed"></span>Report area (geofence)</div>
-      ${homeArea() ? `
-      <div class="legend-sep"></div>
-      <div class="legend-item"><span class="legend-swatch" style="--c:#1b6f8f"></span>Your home</div>` : ''}`;
+      <div class="legend-item"><span class="legend-swatch dashed"></span>Report area</div>`;
   }
 
   async function init() {
@@ -2522,8 +2485,7 @@
     $('#fStatus').addEventListener('change', (e) => { state.filters.status = e.target.value; refresh({ keepView: true }); });
     $('#fVerify').addEventListener('change', (e) => { state.filters.verify = e.target.value; refresh({ keepView: true }); });
 
-    if ($('#fArea')) fillSelect($('#fArea'), [['', 'All barangays'], ...AREAS.map((a) => [a.name, a.name])], '');
-    [['#fScope', 'scope'], ['#fArea', 'area'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
+    [['#fScope', 'scope'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
       const el = $(sel);
       if (el) el.addEventListener('change', (e) => { state.filters[key] = e.target.value; refresh({ keepView: true }); });
     });
@@ -2608,7 +2570,7 @@
     map.on('locationfound', (e) => {
       if (meMarker) map.removeLayer(meMarker);
       meMarker = L.circleMarker(e.latlng, {
-        radius: 8, color: '#10303b', weight: 3, fillColor: '#5cc8d7', fillOpacity: 1
+        radius: 8, color: '#0a3d49', weight: 3, fillColor: '#2db6cc', fillOpacity: 1
       }).addTo(map).bindTooltip('You are here');
     });
     map.on('locationerror', () => toast('Could not get your location. Check your browser permissions.', 'error'));

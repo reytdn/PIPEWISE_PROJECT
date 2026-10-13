@@ -18,7 +18,7 @@
     $ok = sendNoticeEmail(
         $to,
         "PipeSense test email",
-        "This is a test email from PipeSense.\n\nIf you can read this, code red alerts and interruption notices can reach residents.\n"
+        "This is a test email from PipeSense.\n\nIf you can read this, water service notices can reach residents.\n"
     );
 
     if ($ok) {

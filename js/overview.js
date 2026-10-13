@@ -62,9 +62,16 @@
   const markerLayer = L.layerGroup().addTo(map);
   const markers = new Map();
 
-  $('#legend').innerHTML = '<div class="legend-title">Report types</div>' +
-    Object.values(TYPES).map((t) =>
-      `<div class="legend-item"><span class="legend-swatch" style="--c:${t.color}"></span>${t.label}</div>`
+  const MARKERS = {
+    interruption: 'assets/markers/interruption.png',
+    maintenance: 'assets/markers/maintenance.png',
+    pressure: 'assets/markers/pressure.png',
+    quality: 'assets/markers/quality.png'
+  };
+
+  $('#legend').innerHTML = '<div class="legend-title">Markers</div>' +
+    Object.entries(TYPES).map(([k, t]) =>
+      `<div class="legend-item"><img class="legend-pin" src="${MARKERS[k]}" alt="">${t.label}</div>`
     ).join('');
 
   const fmt = (ms) => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -88,13 +95,13 @@
   }
 
   function pinIcon(r) {
-    const t = TYPES[r.type] || { color: '#587079' };
+    const src = MARKERS[r.type] || MARKERS.pressure;
     return L.divIcon({
       className: 'pin-wrap',
-      html: `<div class="pin is-verified st-${esc(r.status)}" style="--c:${t.color}"><span>${CHECK_SVG}</span></div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 28],
-      popupAnchor: [0, -28]
+      html: `<img class="pin-img st-${esc(r.status)}" src="${src}" alt="">`,
+      iconSize: [38, 48],
+      iconAnchor: [19, 48],
+      popupAnchor: [0, -44]
     });
   }
 
@@ -105,7 +112,7 @@
       ? `<img class="popup-photo" src="${esc(r.photo)}" alt="Photo attached to this report" loading="lazy">`
       : '';
     return photo + `<div class="popup-title">${esc(r.title)}</div>` +
-      `<div class="popup-sub">${esc(t.label)} &middot; ${esc(r.area)} &middot; ${esc(STATUSES[r.status] || r.status)}</div>` +
+      `<div class="popup-sub">${esc(t.label)} &middot; ${esc(STATUSES[r.status] || r.status)}</div>` +
       (when ? `<div class="popup-sub">${esc(when)}</div>` : '') +
       (r.desc ? `<p style="margin:8px 0 0;max-width:240px">${esc(r.desc)}</p>` : '');
   }
@@ -118,7 +125,7 @@
       <li>
         <button type="button" class="report-card" data-id="${esc(r.id)}" style="--c:${t.color}">
           <h3>${esc(r.title)}</h3>
-          <div class="where">${esc(r.area)}${when ? ` &middot; ${esc(when)}` : ''}</div>
+          <div class="where">${esc(when || fmt(r.createdAt))}</div>
           <div class="pills">
             <span class="pill pill-status-${esc(r.status)}">${esc(STATUSES[r.status] || r.status)}</span>
             <span class="pill" style="color:${t.color}">${esc(t.label)}</span>
@@ -138,13 +145,13 @@
     const advisories = reports.filter((r) => r.source === 'official');
     const community = reports.filter((r) => r.source !== 'official');
     const ongoing = reports.filter((r) => r.status === 'ongoing').length;
-    const areas = new Set(reports.map((r) => r.area)).size;
+    const scheduled = reports.filter((r) => r.status === 'scheduled').length;
 
     $('#ovStats').innerHTML = [
       [advisories.length, 'Advisories'],
       [community.length, 'Reports'],
       [ongoing, 'Ongoing'],
-      [areas, 'Areas']
+      [scheduled, 'Scheduled']
     ].map(([n, label]) => `<div class="stat"><b>${n}</b><span>${label}</span></div>`).join('');
 
     $('#advCount').textContent = advisories.length ? `(${advisories.length})` : '';

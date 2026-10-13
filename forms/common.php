@@ -150,11 +150,6 @@
             $conn->query("ALTER TABLE reports ADD COLUMN radius_m INT NOT NULL DEFAULT 1000");
         }
 
-        $res = $conn->query("SHOW COLUMNS FROM reports LIKE 'code_red'");
-        if ($res->num_rows === 0) {
-            $conn->query("ALTER TABLE reports ADD COLUMN code_red TINYINT(1) NOT NULL DEFAULT 0");
-        }
-
         $res = $conn->query("SHOW COLUMNS FROM reports LIKE 'geofence'");
         if ($res->num_rows === 0) {
             $conn->query("ALTER TABLE reports ADD COLUMN geofence TEXT NULL");
@@ -512,7 +507,7 @@
     function reportIsAlerting($rep)
     {
         if ($rep['status'] === 'resolved') return false;
-        return (int) $rep['verified'] === 1 || (int) $rep['code_red'] === 1;
+        return (int) $rep['verified'] === 1;
     }
 
     function reportAlertsHome($rep, $lat, $lng)
@@ -523,7 +518,7 @@
     function notifyAffected($conn, $reportId, $onlyUserId = null, $force = false)
     {
         $stmt = $conn->prepare(
-            "SELECT title, description, type, status, area, lat, lng, source, verified, radius_m, geofence, code_red,
+            "SELECT title, description, type, status, lat, lng, source, verified, radius_m, geofence,
                     UNIX_TIMESTAMP(starts_at) AS s, UNIX_TIMESTAMP(ends_at) AS e,
                     UNIX_TIMESTAMP(created_at) AS c
              FROM reports WHERE id = ?"
@@ -561,17 +556,9 @@
         }
         if (!$residents) return 0;
 
-        $codeRed = (int) $rep['code_red'] === 1 && $rep['status'] !== 'resolved';
         $when    = whenText($rep['s'], $rep['e']);
-
-        if ($codeRed) {
-            $message = "CODE RED: " . $rep['title'] . " (" . $rep['area'] . "). Your home is inside the affected area.";
-        } else {
-            $prefix  = $rep['status'] === 'ongoing' ? "Ongoing" : ($rep['status'] === 'scheduled' ? "Scheduled" : "Reported");
-            $message = $prefix . ": " . $rep['title'] . " (" . $rep['area'] . ")"
-                     . ($when !== "" ? ", " . $when : "")
-                     . ". Your home is inside the affected area.";
-        }
+        $prefix  = $rep['status'] === 'ongoing' ? "Ongoing" : ($rep['status'] === 'scheduled' ? "Scheduled" : "Reported");
+        $message = $prefix . ": " . $rep['title'] . ($when !== "" ? ", " . $when : "") . ". Your home is inside the affected area.";
 
         if ($force) {
             $sql = "INSERT INTO notifications (user_id, report_id, message)
@@ -598,34 +585,12 @@
 
                 $dist = haversineM((float) $rep['lat'], (float) $rep['lng'], (float) $r['hlat'], (float) $r['hlng']);
 
-                if ($codeRed) {
-                    $text = "CODE RED water service report\n\n"
-                          . "Hello " . $r['name'] . ",\n\n"
-                          . "An urgent report was posted in PipeSense and your home is inside its affected area.\n\n"
-                          . "Title: " . $rep['title'] . "\n"
-                          . "Type: " . typeLabel($rep['type']) . "\n"
-                          . "Barangay: " . $rep['area'] . "\n"
-                          . "Status: " . ucfirst($rep['status']) . "\n"
-                          . "Reported: " . date('M j, Y g:i A', (int) $rep['c']) . "\n"
-                          . ($when !== "" ? "Schedule: " . $when . "\n" : "")
-                          . "Distance from your home: about " . (int) round($dist) . " m\n\n"
-                          . "Details:\n" . ($rep['description'] !== null && $rep['description'] !== '' ? $rep['description'] : "No details were added.") . "\n\n"
-                          . "Open PipeSense to see it on the map.\n";
-                    sendNoticeEmail((string) $r['email'], "PipeSense CODE RED: " . $rep['title'], $text);
-                } elseif ($rep['source'] === 'official') {
-                    sendNoticeEmail(
-                        (string) $r['email'],
-                        "PipeSense: water service notice for your home",
-                        "Hello " . $r['name'] . ",\n\n" . $message . "\n\nOpen PipeSense to see it on the map.\n"
-                    );
-                } else {
-                    $copy = verifiedEmailCopy($rep['type']);
-                    sendNoticeEmail(
-                        (string) $r['email'],
-                        "PipeSense: " . $copy['subject'] . " (" . $rep['area'] . ")",
-                        verifiedEmailText($rep, $r['name'], $dist)
-                    );
-                }
+                $copy = reportEmailCopy($rep['type']);
+                sendNoticeEmail(
+                    (string) $r['email'],
+                    "PipeSense: " . $copy['subject'],
+                    reportEmailText($rep, $r['name'], $dist)
+                );
             }
         }
         $ins->close();
@@ -641,7 +606,7 @@
         $uid = (int) $userId;
 
         $stmt = $conn->prepare(
-            "SELECT n.id AS nid, r.lat, r.lng, r.radius_m, r.geofence, r.source, r.status, r.code_red, r.verified
+            "SELECT n.id AS nid, r.lat, r.lng, r.radius_m, r.geofence, r.source, r.status, r.verified
              FROM notifications n
              JOIN reports r ON r.id = n.report_id
              WHERE n.user_id = ?"
@@ -664,7 +629,7 @@
         $ids    = [];
         $result = $conn->query(
             "SELECT id FROM reports
-             WHERE status <> 'resolved' AND (verified = 1 OR code_red = 1)"
+             WHERE status <> 'resolved' AND verified = 1"
         );
         while ($row = $result->fetch_assoc()) {
             $ids[] = (int) $row['id'];
@@ -677,12 +642,12 @@
         return $total;
     }
 
-    function verifiedEmailCopy($type)
+    function reportEmailCopy($type)
     {
         $copy = [
             'interruption' => [
-                'subject' => 'Water interruption reported in your area',
-                'intro'   => 'A water interruption was reported near you, and the PipeSense administrator has verified it.',
+                'subject' => 'Water interruption near your home',
+                'what'    => 'a water interruption',
                 'tips'    => [
                     'Store enough water for drinking, cooking and hygiene.',
                     'Avoid running washing machines and other water-using appliances until the supply returns.',
@@ -690,8 +655,8 @@
                 ]
             ],
             'maintenance' => [
-                'subject' => 'Maintenance work in your area',
-                'intro'   => 'Maintenance work on the water system was reported near you, and the PipeSense administrator has verified it.',
+                'subject' => 'Maintenance work near your home',
+                'what'    => 'maintenance work on the water system',
                 'tips'    => [
                     'Expect low pressure or short interruptions while the work is going on.',
                     'Store some water ahead of time if a schedule is shown above.',
@@ -699,8 +664,8 @@
                 ]
             ],
             'pressure' => [
-                'subject' => 'Low water pressure reported in your area',
-                'intro'   => 'Low water pressure was reported near you, and the PipeSense administrator has verified it.',
+                'subject' => 'Low water pressure near your home',
+                'what'    => 'low water pressure',
                 'tips'    => [
                     'Use water outside the busiest hours, such as early morning or late evening.',
                     'If neighbors nearby have normal pressure, check the valves and filters in your own plumbing.',
@@ -708,8 +673,8 @@
                 ]
             ],
             'quality' => [
-                'subject' => 'Water quality concern reported in your area',
-                'intro'   => 'A water quality concern was reported near you, and the PipeSense administrator has verified it.',
+                'subject' => 'Water quality concern near your home',
+                'what'    => 'a water quality concern',
                 'tips'    => [
                     'Do not drink the water if it looks cloudy or colored, or smells or tastes unusual.',
                     'Until it is cleared, use bottled water, or water boiled at a rolling boil for at least one minute, for drinking and cooking.',
@@ -719,24 +684,28 @@
         ];
 
         return isset($copy[$type]) ? $copy[$type] : [
-            'subject' => 'Water service report in your area',
-            'intro'   => 'A water service report was posted near you, and the PipeSense administrator has verified it.',
+            'subject' => 'Water service report near your home',
+            'what'    => 'a water service issue',
             'tips'    => ['Open PipeSense to see what is happening and how long it may last.']
         ];
     }
 
-    function verifiedEmailText($rep, $name, $dist)
+    function reportEmailText($rep, $name, $dist)
     {
-        $copy = verifiedEmailCopy($rep['type']);
+        $copy = reportEmailCopy($rep['type']);
         $when = whenText($rep['s'], $rep['e']);
 
+        if ($rep['source'] === 'official') {
+            $intro = "The PipeSense administrator posted a notice about " . $copy['what'] . " that covers your home.";
+        } else {
+            $intro = ucfirst($copy['what']) . " was reported near you, and the PipeSense administrator has verified it.";
+        }
 
         $text  = "Hello " . $name . ",\n\n"
-               . $copy['intro'] . "\n\n"
+               . $intro . "\n\n"
                . "What was reported\n"
                . "Title: "    . $rep['title'] . "\n"
                . "Type: "     . typeLabel($rep['type']) . "\n"
-               . "Barangay: " . $rep['area'] . "\n"
                . "Status: "   . ucfirst($rep['status']) . "\n"
                . "Reported: " . date('M j, Y g:i A', (int) $rep['c']) . "\n"
                . ($when !== "" ? "Schedule: " . $when . "\n" : "")
@@ -748,8 +717,8 @@
             $text .= "- " . $tip . "\n";
         }
 
-        $text .= "\nOpen PipeSense to see it on the map.\n";
-        $text .= "\nYou are getting this email because your home marker is inside the area this report covers, about "
+        $text .= "\nOpen PipeSense to see it on the map.\n"
+               . "\nYou are getting this email because your home marker is inside the area this report covers, about "
                . (int) round($dist) . " m from the pin.\n";
         return $text;
     }

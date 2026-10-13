@@ -505,37 +505,21 @@
   border: 0;
 }
 
-.pin {
-  --c: var(--muted);
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  transform-origin: 50% 50%;
-  box-shadow: 0 2px 5px rgba(16, 48, 59, 0.4);
+.pin-img {
+  display: block;
+  width: 38px;
+  height: 48px;
+  filter: drop-shadow(0 2px 3px rgba(10, 61, 73, 0.4));
   transition: transform 0.15s;
+  transform-origin: 50% 100%;
 }
-.pin > * { transform: rotate(45deg); }
+.pin-img.st-resolved { opacity: 0.55; filter: grayscale(0.6); }
+.pin-img.is-selected {
+  transform: scale(1.18);
+  filter: drop-shadow(0 0 6px #2db6cc) drop-shadow(0 0 2px #fff);
+}
 
-.pin.is-verified {
-  background: var(--c);
-  border: 3px solid #fff;
-  color: #fff;
-}
-.pin.is-unverified {
-  background: #fff;
-  border: 3px dashed var(--c);
-  color: var(--c);
-}
-.pin.st-resolved { opacity: 0.55; filter: grayscale(0.6); }
-.pin.is-selected {
-  transform: rotate(-45deg) scale(1.3);
-  box-shadow: 0 0 0 4px rgba(92, 200, 215, 0.55), 0 3px 8px rgba(16, 48, 59, 0.5);
-}
-.pin svg { width: 12px; height: 12px; }
-.pin-q { font-weight: 700; font-size: 13px; line-height: 1; }
+.legend-pin { width: 20px; height: 25px; object-fit: contain; flex: none; }
 
 .draft-pin {
   width: 18px; height: 18px;
@@ -827,8 +811,6 @@ input[type="number"] {
   cursor: grab;
 }
 
-.pill-codered { background: #c9443b; color: #fff; font-weight: 700; }
-.pin.is-codered { filter: drop-shadow(0 0 6px #c9443b) drop-shadow(0 0 2px #c9443b); }
 
 
 .popup-photo { display: block; width: 100%; max-height: 150px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; }
@@ -844,10 +826,10 @@ input[type="number"] {
   font-weight: 600;
   padding: 8px 14px;
   background: #fff;
-  color: var(--ink, #10303b);
+  color: var(--ink);
   border: 2px solid rgba(0, 0, 0, 0.25);
   border-radius: 6px;
   cursor: pointer;
 }
 .view-toggle:hover { background: #f3f7f8; }
-.view-toggle.is-on { background: #10303b; color: #fff; }
+.view-toggle.is-on { background: var(--ink); color: #fff; }
