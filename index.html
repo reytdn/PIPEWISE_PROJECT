@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Overview | PipeSense</title>
+
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+        <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+        <link rel="stylesheet" href="css/base.css" />
+        <link rel="stylesheet" href="css/overview.css" />
+    </head>
+
+    <body>
+        <header class="page-header">
+            <svg class="brand-mark" viewBox="0 0 32 32" width="30" height="30">
+                <path d="M16 2.5c-5.2 0-9.2 4-9.2 9.1 0 6.6 9.2 17.9 9.2 17.9s9.2-11.3 9.2-17.9c0-5.1-4-9.1-9.2-9.1z" fill="#5CC8D7"/>
+                <path d="M11 12.5h6.5a2.5 2.5 0 0 1 2.5 2.5v3.5" fill="none" stroke="#10303B" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="11" cy="12.5" r="1.8" fill="#10303B"/>
+            </svg>
+            <h1>PipeSense</h1>
+            <span class="header-sub">Overview</span>
+
+            <div class="header-actions">
+                <a class="btn btn-ghost-light" href="login.html">Log in</a>
+                <a class="btn btn-accent" href="login.html#signup">Sign up</a>
+            </div>
+        </header>
+
+        <div class="disclaimer">
+            <p>Report data is simulated for academic demonstration purposes only. <a href="login.html">Log in</a> to access additional features.</p>
+        </div>
+
+        <div class="page-body">
+            <div class="left-container">
+                <section class="content-card" id="sectionMap">
+                    <div class="card-head">
+                        <div class="card-title">
+                            <h1>Water utility service conditions</h1>
+                            <span class="info">
+                                <span class="info-icon">i</span>
+                                <span class="info-tooltip" id="infoTooltip">Placeholder text here.</span>
+                            </span>
+                        </div>
+                        <span class="period-label" id="periodLabel"></span>
+                    </div>
+                    <div class="map-container">
+                        <div id="map"></div>
+                        <div class="map-side">
+                            <div class="map-legend">
+                                <h3>Legend</h3>
+
+                                <p class="legend-note">Frequency</p>
+                                <div class="freq-bar">
+                                    <span class="f1"></span><span class="f2"></span><span class="f3"></span><span class="f4"></span><span class="f5"></span>
+                                </div>
+                                <div class="freq-ends"><span>Less</span><span>More</span></div>
+
+                                <div class="legend-sep"></div>
+
+                                <h3>Report type</h3>
+                                <div class="legend-item"><span class="legend-swatch t-interruption"></span>Water interruption</div>
+                                <div class="legend-item"><span class="legend-swatch t-maintenance"></span>Maintenance</div>
+                                <div class="legend-item"><span class="legend-swatch t-pressure"></span>Low pressure</div>
+                                <div class="legend-item"><span class="legend-swatch t-quality"></span>Water quality</div>
+                            </div>
+
+                            <a class="btn btn-primary btn-block" id="btnMakeReport" href="login.html">Make a report</a>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="content-card" id="sectionFrequent">
+                    <h2>Frequently Affected Areas</h2>
+                    <div class="table-wrap">
+                        <table class="freq-table">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th class="barangay-col">Barangay</th>
+                                    <th>No. of Reports</th>
+                                </tr>
+                            </thead>
+                            <tbody id="freqBody">
+                                <tr><td colspan="3" class="freq-empty">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="rates-note" id="freqPeriod"></p>
+                </section>
+
+                <section class="content-card" id="sectionRates">
+                    <h2>BACIWA — PrimeWater Water Rates</h2>
+                    <div class="table-wrap">
+                        <table class="rates-table">
+                            <thead>
+                                <tr>
+                                    <th rowspan="2">Classification</th>
+                                    <th rowspan="2">Size (inches)</th>
+                                    <th rowspan="2">Minimum charge (&#8369;)</th>
+                                    <th colspan="6">Commodity charge (&#8369; per cubic meter)</th>
+                                </tr>
+                                <tr>
+                                    <th>11-20</th>
+                                    <th>21-30</th>
+                                    <th>31-50</th>
+                                    <th>51-70</th>
+                                    <th>71-100</th>
+                                    <th>100+</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                        <tr class="group-start">
+                            <th scope="rowgroup" rowspan="10">Residential/Government</th>
+                            <td class="size">1/2</td>
+                            <td class="num">216.96</td>
+                            <td class="num" rowspan="10">22.32</td>
+                            <td class="num" rowspan="10">23.73</td>
+                            <td class="num" rowspan="10">26.91</td>
+                            <td class="num" rowspan="10">31.35</td>
+                            <td class="num" rowspan="10">37.03</td>
+                            <td class="num" rowspan="10">44.54</td>
+                        </tr>
+                        <tr>
+                            <td class="size">3/2</td>
+                            <td class="num">347.14</td>
+                        </tr>
+                        <tr>
+                            <td class="size">1</td>
+                            <td class="num">694.29</td>
+                        </tr>
+                        <tr>
+                            <td class="size">1 1/2</td>
+                            <td class="num">1,735.72</td>
+                        </tr>
+                        <tr>
+                            <td class="size">2</td>
+                            <td class="num">4,339.30</td>
+                        </tr>
+                        <tr>
+                            <td class="size">3</td>
+                            <td class="num">7,810.73</td>
+                        </tr>
+                        <tr>
+                            <td class="size">4</td>
+                            <td class="num">15,621.47</td>
+                        </tr>
+                        <tr>
+                            <td class="size">6</td>
+                            <td class="num">26,035.78</td>
+                        </tr>
+                        <tr>
+                            <td class="size">8</td>
+                            <td class="num">41,657.24</td>
+                        </tr>
+                        <tr>
+                            <td class="size">10</td>
+                            <td class="num">59,882.28</td>
+                        </tr>
+                        <tr class="group-start">
+                            <th scope="rowgroup" rowspan="10">Commercial/Industrial</th>
+                            <td class="size">1/2</td>
+                            <td class="num">433.93</td>
+                            <td class="num" rowspan="10">44.64</td>
+                            <td class="num" rowspan="10">47.46</td>
+                            <td class="num" rowspan="10">53.82</td>
+                            <td class="num" rowspan="10">62.69</td>
+                            <td class="num" rowspan="10">74.06</td>
+                            <td class="num" rowspan="10">89.08</td>
+                        </tr>
+                        <tr>
+                            <td class="size">3/4</td>
+                            <td class="num">694.29</td>
+                        </tr>
+                        <tr>
+                            <td class="size">1</td>
+                            <td class="num">1,388.57</td>
+                        </tr>
+                        <tr>
+                            <td class="size">1 1/2</td>
+                            <td class="num">3,471.44</td>
+                        </tr>
+                        <tr>
+                            <td class="size">2</td>
+                            <td class="num">8,678.59</td>
+                        </tr>
+                        <tr>
+                            <td class="size">3</td>
+                            <td class="num">15,621.47</td>
+                        </tr>
+                        <tr>
+                            <td class="size">4</td>
+                            <td class="num">31,242.93</td>
+                        </tr>
+                        <tr>
+                            <td class="size">6</td>
+                            <td class="num">52,071.55</td>
+                        </tr>
+                        <tr>
+                            <td class="size">8</td>
+                            <td class="num">83,314.48</td>
+                        </tr>
+                        <tr>
+                            <td class="size">10</td>
+                            <td class="num">119,764.56</td>
+                        </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="rates-note">12% VAT exclusive.</p>
+                    <p class="rates-note">Bulk/Wholesale: &#8369;25.92 per cubic meter.</p>
+                </section>
+            </div>
+
+            <div class="right-container">
+                <div class="side-card">
+                    <h3>Configuration</h3>
+
+                    <div class="sort-box">
+                        <label class="field">
+                            <span>Sort by</span>
+                            <select id="sortBy">
+                                <option value="month">Month</option>
+                                <option value="day">Day</option>
+                                <option value="year">Year</option>
+                            </select>
+                        </label>
+
+                        <label class="field" id="fieldMonth">
+                            <span>Month</span>
+                            <select id="selMonth"></select>
+                        </label>
+                        <label class="field" id="fieldDay" hidden>
+                            <span>Date</span>
+                            <input type="date" id="selDay">
+                        </label>
+                        <label class="field" id="fieldYear" hidden>
+                            <span>Year</span>
+                            <select id="selYear"></select>
+                        </label>
+                    </div>
+
+                    <p>Jump to</p>
+                    <nav class="jump-nav">
+                        <a href="#sectionMap">Map</a>
+                        <a href="#sectionFrequent">Frequently Affected Areas</a>
+                        <a href="#sectionRates">Water Utility Rates</a>
+                    </nav>
+                </div>
+
+                <div class="side-card stat-card">
+                    <p class="stat-label">Total Reports (All-Time)</p>
+                    <div class="stat-value" id="statTotal">-</div>
+                </div>
+
+                <div class="side-card stat-card">
+                    <p class="stat-label">Scheduled Water Interruptions Today</p>
+                    <div class="stat-value" id="statScheduled">-</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Scripts -->
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+        <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+        <script src="js/overview.js"></script>
+    </body>
+</html>
