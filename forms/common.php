@@ -2,7 +2,7 @@
 
     header('Cache-Control: no-store');
 
-    session_start();
+    require __DIR__ . '/session_boot.php';
 
     date_default_timezone_set('Asia/Manila');
 

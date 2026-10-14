@@ -1,12 +1,10 @@
 <?php
 
     header('Cache-Control: no-store');
-    session_start();
+    require __DIR__ . '/session_boot.php';
 
-    $host = "localhost";
-    $user = "root";
-    $pass = "";
-    $db   = "pipesense";
+    require __DIR__ . '/db_config.php';
+    require __DIR__ . '/login_guard.php';
 
     $debug = true;
 
@@ -51,6 +49,11 @@
         $conn = new mysqli($host, $user, $pass, $db);
         $conn->set_charset("utf8mb4");
 
+        loginGuardEnsure($conn);
+        $guardKey = loginGuardKey('resident', $identifier);
+        $wait = loginLockedFor($conn, $guardKey);
+        if ($wait > 0) loginLockedReply($wait);
+
         $stmt = $conn->prepare(
             "SELECT id, username, password, name, address, email
              FROM user_login
@@ -64,6 +67,7 @@
 
         if (!$row) {
             password_verify($password, password_hash("dummy", PASSWORD_DEFAULT));
+            loginRecordFail($conn, $guardKey);
             usleep(400000);
             echo json_encode([
                 "status"  => "error",
@@ -75,6 +79,7 @@
 
         if (!password_verify($password, $row['password'])) {
 
+            loginRecordFail($conn, $guardKey);
             usleep(400000);
 
             echo json_encode([
@@ -94,6 +99,8 @@
             $upd->execute();
             $upd->close();
         }
+
+        loginClear($conn, $guardKey);
 
         session_regenerate_id(true);
         $_SESSION['pipesense_role']    = 'resident';

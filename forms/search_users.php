@@ -2,13 +2,7 @@
 
     require __DIR__ . '/common.php';
 
-    $host = "localhost";
-
-    $user = "root";
-
-    $pass = "";
-
-    $db = "pipesense";
+    require __DIR__ . '/db_config.php';
 
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
