@@ -2,13 +2,7 @@
 
     require __DIR__ . '/common.php';
 
-    $host = "localhost";
-
-    $user = "root";
-
-    $pass = "";
-
-    $db = "pipesense";
+    require __DIR__ . '/db_config.php';
 
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
@@ -34,8 +28,7 @@
                     UNIX_TIMESTAMP(starts_at)  * 1000 AS starts_ms,
                     UNIX_TIMESTAMP(ends_at)    * 1000 AS ends_ms
              FROM reports
-             WHERE status <> 'resolved'
-               AND (source = 'official' OR verified = 1)
+             WHERE source = 'official' OR verified = 1
              ORDER BY created_at DESC, id DESC
              LIMIT 200"
         );

@@ -2,10 +2,7 @@
 
     header('Cache-Control: no-store');
 
-    $host = "localhost";
-    $user = "root";
-    $pass = "";
-    $db   = "pipesense";
+    require __DIR__ . '/db_config.php';
 
     $debug = true;
 

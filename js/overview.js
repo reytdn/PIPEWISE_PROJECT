@@ -65,6 +65,9 @@ jQuery(document).ready(function () {
   setTimeout(() => map.invalidateSize(), 300);
 
   let totalReports = 0;
+  let allReports = [];
+  let currentTotals = null;
+
   function frequencyLevel(count) {
     const share = count / Math.max(totalReports, 1);
     if (share >= 0.50) return 5;
@@ -123,6 +126,33 @@ jQuery(document).ready(function () {
   }
 
   let first = true;
+
+  function getFilteredReports() {
+    const range = periodRange();
+
+    if (!range) return allReports;
+
+    const [fy, fm, fd] = range.from.split('-').map(Number);
+    const [ty, tm, td] = range.to.split('-').map(Number);
+
+    const from = new Date(fy, fm - 1, fd);
+    const to   = new Date(ty, tm - 1, td);
+
+    return allReports.filter((report) => {
+      const timestamp = report.startsAt || report.createdAt;
+
+      if (!timestamp) return false;
+
+      const reportDate = new Date(timestamp);
+
+      return reportDate >= from && reportDate < to;
+    });
+  }
+
+  function renderFiltered() {
+    const filteredReports = getFilteredReports();
+    render(filteredReports, currentTotals);
+  }
 
   function render(reports, totals) {
     qs('#statTotal').textContent = totals ? totals.all : reports.length;
@@ -191,10 +221,18 @@ jQuery(document).ready(function () {
           return;
         }
 
-        const signature = JSON.stringify([data.reports, data.totals]);
+        const signature = JSON.stringify([
+          data.reports,
+          data.totals
+        ]);
+
         if (signature !== lastSignature || first) {
           lastSignature = signature;
-          render(data.reports, data.totals);
+
+          allReports = data.reports;
+          currentTotals = data.totals;
+
+          renderFiltered();
         }
       },
 
@@ -291,14 +329,22 @@ jQuery(document).ready(function () {
 
   function updatePeriod() {
     const mode = qs('#sortBy').value;
+
     qs('#fieldMonth').hidden = mode !== 'month';
     qs('#fieldDay').hidden = mode !== 'day';
     qs('#fieldYear').hidden = mode !== 'year';
 
     const text = periodText();
+
     qs('#periodLabel').textContent = text.toUpperCase();
-    qs('#freqPeriod').textContent = text === '' ? '' : 'Reports during ' + text + '.';
+    qs('#freqPeriod').textContent =
+      text === '' ? '' : 'Reports during ' + text + '.';
+
     loadFrequentAreas();
+
+    if (allReports.length) {
+      renderFiltered();
+    }
   }
 
   resetToToday();
