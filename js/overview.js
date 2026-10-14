@@ -1,4 +1,4 @@
-(() => {
+jQuery(document).ready(function () {
   'use strict';
 
   const ENDPOINT = 'forms/public_reports.php';
@@ -18,7 +18,7 @@
                   'August', 'September', 'October', 'November', 'December'];
   const YEARS_BACK = 5;   // how many years before this one show in the list
 
-  const $ = (sel) => document.querySelector(sel);
+  const qs = (sel) => document.querySelector(sel);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
@@ -29,12 +29,11 @@
     const u = JSON.parse(sessionStorage.getItem(SESSION_KEY));
     if (u && u.role) {
       const href = u.role === 'admin' ? 'admin_dashboard.html' : 'user_dashboard.html';
-      $('#publicActions').innerHTML = `<a class="btn btn-accent" href="${href}">Open my dashboard</a>`;
-      $('#btnMakeReport').setAttribute('href', href);
+      qs('#publicActions').innerHTML = `<a class="btn btn-accent" href="${href}">Open my dashboard</a>`;
+      qs('#btnMakeReport').setAttribute('href', href);
     }
   } catch (e) { }
 
-  // ---------- map ----------
   const map = L.map('map', { zoomControl: false }).setView(CENTER, 13);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   const streetTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -65,8 +64,6 @@
   window.addEventListener('resize', () => map.invalidateSize());
   setTimeout(() => map.invalidateSize(), 300);
 
-  // zoomed out: reports group together, coloured by how many reports the group holds;
-  // from zoom 16 every report shows as its own pin
   let totalReports = 0;
   function frequencyLevel(count) {
     const share = count / Math.max(totalReports, 1);
@@ -92,7 +89,7 @@
   const areaLayer = L.layerGroup().addTo(map);
   const markers = new Map();
 
-  $('#legend').innerHTML = `
+  qs('#legend').innerHTML = `
     <h3>Legend</h3>
     <p class="legend-note">Grouped reports</p>
     <div class="freq-bar"><span class="f1"></span><span class="f2"></span><span class="f3"></span><span class="f4"></span><span class="f5"></span></div>
@@ -128,8 +125,8 @@
   let first = true;
 
   function render(reports, totals) {
-    $('#statTotal').textContent = totals ? totals.all : reports.length;
-    $('#statScheduled').textContent = totals ? totals.scheduledToday : '-';
+    qs('#statTotal').textContent = totals ? totals.all : reports.length;
+    qs('#statScheduled').textContent = totals ? totals.scheduledToday : '-';
 
     markerLayer.clearLayers();
     areaLayer.clearLayers();
@@ -165,67 +162,79 @@
   }
 
   function showProblem(message) {
-    $('#statTotal').textContent = '-';
-    $('#statScheduled').textContent = '-';
-    $('#legend').insertAdjacentHTML('beforeend', `<p class="legend-note" role="alert" style="margin-top:14px;color:#a8322a">${esc(message)}</p>`);
+    qs('#statTotal').textContent = '-';
+    qs('#statScheduled').textContent = '-';
+    qs('#legend').insertAdjacentHTML('beforeend', `<p class="legend-note" role="alert" style="margin-top:14px;color:#a8322a">${esc(message)}</p>`);
   }
 
   let lastSignature = '';
 
-  // AJAX call to forms/public_reports.php, which reads the reports table
   function load() {
-    jQuery.ajax({ url: ENDPOINT, method: 'GET', dataType: 'json', cache: false })
-      .done((data) => {
+    $.ajax({
+      url: ENDPOINT,
+      type: 'GET',
+      dataType: 'text',
+      cache: false,
+
+      success: function (response) {
+        let data;
+        try {
+          data = JSON.parse(response);
+        } catch (e) {
+          console.error('JSON parse error:', e);
+          if (first) { showProblem('Unexpected reply from ' + ENDPOINT + ': ' + String(response).replace(/<[^>]*>/g, ' ').trim().slice(0, 140)); first = false; }
+          return;
+        }
+
         if (data.status !== 'success') {
           if (first) { showProblem((data.message || 'The server returned an error.') + (data.detail ? ` (${data.detail})` : '')); first = false; }
           return;
         }
+
         const signature = JSON.stringify([data.reports, data.totals]);
         if (signature !== lastSignature || first) {
           lastSignature = signature;
           render(data.reports, data.totals);
         }
-      })
-      .fail((xhr) => {
+      },
+
+      error: function () {
         if (!first) return;
-        showProblem(xhr.status === 0
-          ? 'Cannot reach the server. Open this page from http://localhost/... with Apache and MySQL running in Laragon.'
-          : 'Unexpected reply from ' + ENDPOINT + ': ' + String(xhr.responseText || '').replace(/<[^>]*>/g, ' ').trim().slice(0, 140));
+        showProblem('Error connecting to server. Open this page from http://localhost/... with Apache and MySQL running in Laragon.');
         first = false;
-      });
+      }
+    });
   }
 
-  // ---------- Configuration: sort by month / day / year ----------
   let now = new Date();
 
   MONTHS.forEach((name, i) => {
-    $('#selMonth').insertAdjacentHTML('beforeend', `<option value="${i}">${name}</option>`);
+    qs('#selMonth').insertAdjacentHTML('beforeend', `<option value="${i}">${name}</option>`);
   });
   for (let y = now.getFullYear(); y >= now.getFullYear() - YEARS_BACK; y--) {
-    $('#selYear').insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
+    qs('#selYear').insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
   }
 
   function resetToToday() {
     now = new Date();
-    $('#selMonth').value = now.getMonth();
-    $('#selYear').value = now.getFullYear();
-    $('#selDay').value = ymd(now);
+    qs('#selMonth').value = now.getMonth();
+    qs('#selYear').value = now.getFullYear();
+    qs('#selDay').value = ymd(now);
   }
 
-  // [from, to): from = first day of the period, to = first day after it
   function periodRange() {
-    const mode = $('#sortBy').value;
+    const mode = qs('#sortBy').value;
     let from, to;
     if (mode === 'month') {
-      const m = parseInt($('#selMonth').value, 10);
+      const m = parseInt(qs('#selMonth').value, 10);
       from = new Date(now.getFullYear(), m, 1);
       to = new Date(now.getFullYear(), m + 1, 1);
     } else if (mode === 'year') {
-      const yr = parseInt($('#selYear').value, 10);
+      const yr = parseInt(qs('#selYear').value, 10);
       from = new Date(yr, 0, 1);
       to = new Date(yr + 1, 0, 1);
     } else {
-      const parts = $('#selDay').value.split('-');
+      const parts = qs('#selDay').value.split('-');
       if (parts.length !== 3) return null;
       from = new Date(+parts[0], +parts[1] - 1, +parts[2]);
       to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 1);
@@ -234,52 +243,69 @@
   }
 
   function periodText() {
-    const mode = $('#sortBy').value;
-    if (mode === 'month') return MONTHS[$('#selMonth').value] + ' ' + now.getFullYear();
-    if (mode === 'year') return $('#selYear').value;
-    const parts = $('#selDay').value.split('-');
+    const mode = qs('#sortBy').value;
+    if (mode === 'month') return MONTHS[qs('#selMonth').value] + ' ' + now.getFullYear();
+    if (mode === 'year') return qs('#selYear').value;
+    const parts = qs('#selDay').value.split('-');
     return parts.length === 3 ? MONTHS[+parts[1] - 1] + ' ' + (+parts[2]) + ', ' + parts[0] : '';
   }
 
   const freqRow = (html) => `<tr><td colspan="3" class="freq-empty">${html}</td></tr>`;
   let areaTicket = 0;
 
-  // fills the Frequently Affected Areas table for the chosen period
   function loadFrequentAreas() {
     const range = periodRange();
-    if (!range) { $('#freqBody').innerHTML = freqRow('Pick a date to see the areas.'); return; }
+    if (!range) { qs('#freqBody').innerHTML = freqRow('Pick a date to see the areas.'); return; }
 
     const mine = ++areaTicket;
-    jQuery.ajax({ url: AREAS, method: 'GET', data: range, dataType: 'json', cache: false })
-      .done((res) => {
+    $.ajax({
+      url: AREAS,
+      type: 'GET',
+      data: range,
+      dataType: 'text',
+      cache: false,
+
+      success: function (response) {
         if (mine !== areaTicket) return;
+        let res;
+        try {
+          res = JSON.parse(response);
+        } catch (e) {
+          console.error('JSON parse error:', e);
+          qs('#freqBody').innerHTML = freqRow('Could not load the areas.');
+          return;
+        }
         if (res.status === 'success' && res.areas.length) {
-          $('#freqBody').innerHTML = res.areas.map((row, i) =>
+          qs('#freqBody').innerHTML = res.areas.map((row, i) =>
             `<tr><td>${i + 1}</td><td>${esc(row.area)}</td><td>${row.report_count}</td></tr>`).join('');
         } else {
-          $('#freqBody').innerHTML = freqRow('No reports for this period.');
+          qs('#freqBody').innerHTML = freqRow('No reports for this period.');
         }
-      })
-      .fail(() => { if (mine === areaTicket) $('#freqBody').innerHTML = freqRow('Could not load the areas.'); });
+      },
+
+      error: function () {
+        if (mine === areaTicket) qs('#freqBody').innerHTML = freqRow('Could not load the areas.');
+      }
+    });
   }
 
   function updatePeriod() {
-    const mode = $('#sortBy').value;
-    $('#fieldMonth').hidden = mode !== 'month';
-    $('#fieldDay').hidden = mode !== 'day';
-    $('#fieldYear').hidden = mode !== 'year';
+    const mode = qs('#sortBy').value;
+    qs('#fieldMonth').hidden = mode !== 'month';
+    qs('#fieldDay').hidden = mode !== 'day';
+    qs('#fieldYear').hidden = mode !== 'year';
 
     const text = periodText();
-    $('#periodLabel').textContent = text.toUpperCase();
-    $('#freqPeriod').textContent = text === '' ? '' : 'Reports during ' + text + '.';
+    qs('#periodLabel').textContent = text.toUpperCase();
+    qs('#freqPeriod').textContent = text === '' ? '' : 'Reports during ' + text + '.';
     loadFrequentAreas();
   }
 
   resetToToday();
   updatePeriod();
-  ['#selMonth', '#selDay', '#selYear'].forEach((s) => $(s).addEventListener('change', updatePeriod));
-  $('#sortBy').addEventListener('change', () => { resetToToday(); updatePeriod(); });
+  ['#selMonth', '#selDay', '#selYear'].forEach((s) => qs(s).addEventListener('change', updatePeriod));
+  qs('#sortBy').addEventListener('change', () => { resetToToday(); updatePeriod(); });
 
   load();
   setInterval(load, REFRESH_MS);
-})();
+});

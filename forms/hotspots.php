@@ -2,9 +2,27 @@
 
     require __DIR__ . '/common.php';
 
-    // Frequently affected areas.
-    // Basis: every VERIFIED report, resolved or still open.
-    // Only the ground where the areas of two or more of those reports overlap is returned.
+    $host = "localhost";
+
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+    try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
+    }
+
+    prepareTables($conn);
 
     const HOT_MAX_REPORTS = 2000;
     const HOT_MIN_STEP_M  = 30;
@@ -33,9 +51,7 @@
     }
 
     try {
-
-        $conn = db();
-        actor();
+        actor($conn);
 
         $result = $conn->query(
             "SELECT id, lat, lng, radius_m, geofence
@@ -60,7 +76,8 @@
         }
 
         if (count($reports) < 2) {
-            respond(["status" => "success", "cells" => [], "max" => 0, "reports" => count($reports)]);
+            echo json_encode(["status" => "success", "cells" => [], "max" => 0, "reports" => count($reports)]);
+            exit;
         }
 
         $midLat = ($south + $north) / 2;
@@ -103,7 +120,7 @@
             if ($n > $max) $max = $n;
         }
 
-        respond([
+        echo json_encode([
             "status"  => "success",
             "cells"   => $cells,
             "max"     => $max,
@@ -113,6 +130,7 @@
             "stepLng" => round($stepLng, 7),
             "reports" => count($reports)
         ]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "hotspots.php");

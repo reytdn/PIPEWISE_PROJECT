@@ -13,19 +13,7 @@
   <link rel="stylesheet" href="css/login.css?v=9">
 </head>
 <body>
-  <script>
-    function pipesenseBanner(html) {
-      var b = document.createElement('div');
-      b.className = 'boot-error';
-      b.setAttribute('role', 'alert');
-      b.innerHTML = html;
-      document.body.insertBefore(b, document.body.firstChild);
-    }
-    window.addEventListener('error', function (e) {
-      var file = (e.filename || '').split('/').pop();
-      pipesenseBanner('Script error: ' + (e.message || 'unknown') + (file ? ' (' + file + ':' + e.lineno + ')' : ''));
-    }, true);
-  </script>
+  <script src="js/login_boot.js"></script>
 
   <section class="gate" id="gate" aria-labelledby="gateTitle">
     <div class="gate-art">
@@ -105,14 +93,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="js/jquery-3.7.1.min.js"></script>
-  <script src="js/login.js?v=9"></script>
-  <script>
-    if (!window.__pipesenseLoginReady) {
-      pipesenseBanner('<b>login.js</b> did not load, so the buttons cannot work. It must be at <b>js/login.js</b> (next to login.html), then press Ctrl+F5.');
-    }
-    if (!getComputedStyle(document.documentElement).getPropertyValue('--ink').trim()) {
-      pipesenseBanner('<b>base.css</b> did not load. It must be at <b>css/base.css</b>, then press Ctrl+F5.');
-    }
-  </script>
+  <script src="js/login.js?v=10"></script>
+  <script src="js/login_check.js"></script>
 </body>
 </html>

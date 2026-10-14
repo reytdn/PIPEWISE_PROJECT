@@ -1,4 +1,3 @@
-/* Public overview page: map card with a side legend, grouped markers coloured by frequency */
 
 .ov-page { height: auto; min-height: 100%; }
 html { scroll-behavior: smooth; }
@@ -161,8 +160,6 @@ html { scroll-behavior: smooth; }
   .card-title h1 { font-size: 22px; }
 }
 
-/* ---------- Configuration card ---------- */
-
 .side-card h3 { font-size: 1rem; }
 .sort-box { display: grid; gap: 12px; margin-top: 16px; margin-bottom: 28px; }
 .sort-box [hidden] { display: none; }
@@ -189,13 +186,11 @@ input[type="date"] {
 }
 .jump-nav a:hover { background: #eaf1f0; border-color: var(--water); }
 
-/* ---------- Tables ---------- */
-
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 .content-card .rates-note { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 .content-card .table-wrap + .rates-note { margin-top: 12px; }
 
-.freq-table, .rates-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.freq-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
 .freq-table th, .freq-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: center; }
 .freq-table thead th { background: var(--paper); color: var(--ink); font-weight: 600; }
 .freq-table th:nth-child(1), .freq-table td:nth-child(1) { width: 90px; }
@@ -205,15 +200,44 @@ input[type="date"] {
 .freq-table tbody tr:last-child td { border-bottom: 0; }
 .freq-table .freq-empty { text-align: center; color: var(--muted); padding: 24px 12px; }
 
-.rates-table th, .rates-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); text-align: center; }
-.rates-table th:last-child, .rates-table td:last-child { border-right: 0; }
-.rates-table thead th { background: var(--paper); color: var(--ink); font-weight: 600; vertical-align: middle; }
-.rates-table tbody th { background: var(--surface); color: var(--ink); font-weight: 600; text-align: left; vertical-align: top; }
-.rates-table td[rowspan] { vertical-align: middle; font-weight: 600; }
-.rates-table tbody tr.group-start td, .rates-table tbody tr.group-start th { border-top: 2px solid var(--line); }
-.rates-table tbody tr:last-child td { border-bottom: 0; }
-
 @media (max-width: 1100px) {
   .right-container { top: auto; }
   .right-container .side-card { flex: 1 1 220px; }
 }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-bottom: 0; border-radius: var(--radius); }
+.rates-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+}
+.rates-table th,
+.rates-table td {
+    padding: 8px 12px;
+    text-align: center;
+    border: 0;
+    border-left: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+}
+.rates-table thead th {
+    background: var(--paper);
+    color: var(--ink);
+    font-weight: 600;
+    vertical-align: middle;
+}
+.rates-table tbody th[scope="rowgroup"] {
+    background: var(--surface);
+    color: var(--ink);
+    font-weight: 600;
+    text-align: left;
+    vertical-align: top;
+    border-left: 0;
+}
+.rates-table thead tr:first-child th:first-child { border-left: 0; }
+.rates-table td[rowspan] { vertical-align: middle; font-weight: 600; }
+.rates-table tbody tr.group-start th,
+.rates-table tbody tr.group-start td { border-top: 0; }
+.rates-table tbody tr.group-start:not(:first-child) th,
+.rates-table tbody tr.group-start:not(:first-child) td { box-shadow: inset 0 2px 0 var(--line); }

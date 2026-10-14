@@ -1,0 +1,20 @@
+<div class="insights">
+  <h2>Report history</h2>
+  <p class="lead">Resolved reports leave the active map but stay stored here, with a log of every change.</p>
+
+  <div class="seg" role="tablist" aria-label="History sections">
+    <button type="button" class="seg-btn{{#if resolvedTab}} is-active{{/if}}" data-action="hist-tab" data-tab="resolved">Resolved reports</button>
+    <button type="button" class="seg-btn{{#if logTab}} is-active{{/if}}" data-action="hist-tab" data-tab="log">Activity log</button>
+  </div>
+
+  <div class="hist-controls">
+    <label class="search"><span class="sr-only">Search history</span>
+      <input type="search" id="hSearch" placeholder="Search by title, area, or person" value="{{q}}" autocomplete="off"></label>
+    <div class="filter-row filter-row-2">
+      <label class="date-field"><span>From</span><input type="date" id="hFrom" value="{{from}}"></label>
+      <label class="date-field"><span>To</span><input type="date" id="hTo" value="{{to}}"></label>
+    </div>
+  </div>
+
+  <div id="histBody"></div>
+</div>

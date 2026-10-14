@@ -1,0 +1,11 @@
+<div class="result-meta" style="margin:0 0 6px">
+  <span>{{count}} log entr{{plural}}</span>
+  <button type="button" class="link-btn" data-action="export-log">Download log (CSV)</button>
+</div>{{#each rows}}
+<div class="log-row">
+  <button type="button" class="queue-main" data-action="open" data-id="{{reportId}}">
+    <strong>{{title}}</strong>
+    <span>{{text}}</span>
+  </button>
+  <span class="log-when">{{when}}<br>{{actor}}</span>
+</div>{{/each}}{{#if rows}}{{else}}<p class="empty-inline">No log entries match.</p>{{/if}}

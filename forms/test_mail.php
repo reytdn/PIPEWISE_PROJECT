@@ -2,15 +2,40 @@
 
     require __DIR__ . '/common.php';
 
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        fail("Invalid request.", 405);
+    $host = "localhost";
+
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+    try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
     }
 
-    requireAdmin();
+    prepareTables($conn);
 
-    $to = input('to');
+    $to = isset($_POST['to']) ? trim((string) $_POST['to']) : '';
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        echo json_encode(["status" => "error", "message" => "Invalid request."]);
+        exit;
+    }
+
+    requireAdmin($conn);
+
     if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
-        fail("Enter a valid email address.");
+        echo json_encode(["status" => "error", "message" => "Enter a valid email address."]);
+        exit;
     }
 
     $usingGmail = defined('SMTP_USER') && SMTP_USER !== '';
@@ -22,13 +47,15 @@
     );
 
     if ($ok) {
-        respond([
+        echo json_encode([
             "status"  => "success",
             "message" => "Test email sent to " . $to . ($usingGmail ? " through Gmail." : " with PHP mail().")
         ]);
+        exit;
     }
 
     $why = !empty($GLOBALS['PS_MAIL_ERROR']) ? $GLOBALS['PS_MAIL_ERROR'] : "Unknown problem.";
-    fail("The email could not be sent. " . $why, 500);
+    echo json_encode(["status" => "error", "message" => "The email could not be sent. " . $why]);
+    exit;
 
 ?>

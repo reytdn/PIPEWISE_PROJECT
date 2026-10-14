@@ -1,4 +1,55 @@
-(() => {
+const VIEW_FILES = [
+  'admin_dashboard',
+  'auth_area',
+  'avatar',
+  'cluster_icon',
+  'detail',
+  'draft_pin',
+  'empty_inline',
+  'geo_banner',
+  'geo_handle',
+  'history_log',
+  'history_resolved',
+  'history_view',
+  'home_banner',
+  'home_confirm',
+  'home_icon_fallback',
+  'insights',
+  'legend',
+  'map_attribution',
+  'list_empty',
+  'notice_item',
+  'notice_list',
+  'photo_preview',
+  'pills',
+  'popup',
+  'profile',
+  'profile_error',
+  'queue_actions_live',
+  'queue_actions_mine',
+  'queue_actions_pending',
+  'queue_item',
+  'report_card',
+  'report_log_dialog',
+  'resident_dashboard',
+  'select_options',
+  'stat_strip',
+  'suggest_empty',
+  'suggest_items',
+  'user_popup',
+  'user_search',
+  'welcome_admin',
+  'welcome_resident'
+];
+
+function templateFailed(err) {
+  const banner = document.getElementById('bootError');
+  if (!banner) { console.error(err); return; }
+  banner.textContent = 'PipeSense could not start: ' + err.message + '. Open this page from http://localhost/... with Apache running in Laragon.';
+  banner.hidden = false;
+}
+
+function startApp() {
   'use strict';
 
   const CONFIG = {
@@ -21,7 +72,6 @@
     quality:      { label: 'Water quality',      color: '#7a5ba6' }
   };
 
-  // starting radius in meters for each report type
   const RANGES = {
     interruption: { narrow: 500, standard: 1000, wide: 2000 },
     maintenance:  { narrow: 300, standard: 800,  wide: 1500 },
@@ -73,7 +123,7 @@
     ...NAMED_AREAS.slice(3)
   ];
 
-  const $ = (sel, root = document) => root.querySelector(sel);
+  const qs = (sel, root = document) => root.querySelector(sel);
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -233,7 +283,8 @@
     searchUsers: 'forms/search_users.php',
     notifications: 'forms/notifications.php',
     log: 'forms/report_log.php',
-    hotspots: 'forms/hotspots.php'
+    hotspots: 'forms/hotspots.php',
+    profile: 'forms/profile.php'
   };
 
   const db = { reports: [], notifications: [], log: [] };
@@ -248,7 +299,6 @@
     location.replace('login.html');
   }
 
-  // every call to a PHP file goes through jQuery AJAX
   function api(url, fields = {}) {
     const u = currentUser();
     const hasFile = Object.values(fields).some((v) => v instanceof Blob);
@@ -266,36 +316,40 @@
     }
 
     return new Promise((resolve, reject) => {
-      jQuery.ajax({
-        url,
-        method: 'POST',
-        data,
-        dataType: 'json',
+      $.ajax({
+        url: url,
+        type: 'POST',
+        data: data,
+        dataType: 'text',
         processData: !hasFile,
-        contentType: hasFile ? false : 'application/x-www-form-urlencoded; charset=UTF-8'
-      })
-        .done((res) => {
-          if (res && res.status === 'success') return resolve(res);
-          const err = new Error((res && res.message) || 'The request failed.');
-          err.detail = res && res.detail;
+        contentType: hasFile ? false : 'application/x-www-form-urlencoded; charset=UTF-8',
+
+        success: function (response) {
+          let res;
+          try {
+            res = JSON.parse(response);
+          } catch (e) {
+            console.error('JSON parse error:', e);
+            reject(new Error('Unexpected reply from ' + url + ': ' + String(response).replace(/<[^>]*>/g, ' ').trim().slice(0, 160)));
+            return;
+          }
+
+          if (res.status === 'success') {
+            resolve(res);
+            return;
+          }
+
+          if (res.code === 'not_logged_in') sessionExpired();
+
+          const err = new Error(res.message || 'The request failed.');
+          err.detail = res.detail;
           reject(err);
-        })
-        .fail((xhr) => {
-          const res = xhr.responseJSON;
-          if (xhr.status === 401) {
-            sessionExpired();
-            return reject(new Error((res && res.message) || 'Session expired.'));
-          }
-          if (res && res.message) {
-            const err = new Error(res.message);
-            err.detail = res.detail;
-            return reject(err);
-          }
-          if (xhr.status === 0) {
-            return reject(new Error('Cannot reach the server. Make sure Apache and MySQL are running in Laragon.'));
-          }
-          reject(new Error('Unexpected reply from ' + url + ': ' + String(xhr.responseText || '').replace(/<[^>]*>/g, ' ').trim().slice(0, 160)));
-        });
+        },
+
+        error: function () {
+          reject(new Error('Error connecting to server. Make sure Apache and MySQL are running in Laragon.'));
+        }
+      });
     });
   }
 
@@ -329,11 +383,10 @@
   }
 
   function announceNewNotes(fresh) {
-    const items = fresh.slice(0, 5).map((n) => `<li>${esc(n.message)}</li>`).join('');
     Swal.fire({
       icon: 'warning',
       title: fresh.length === 1 ? 'Water service notice for your home' : `${fresh.length} water service notices for your home`,
-      html: `<ul style="text-align:left;margin:0;padding-left:1.2em">${items}</ul>`,
+      html: Tpl.render('notice_list', { items: fresh.slice(0, 5) }),
       confirmButtonText: 'View dashboard',
       showCancelButton: true,
       cancelButtonText: 'Close'
@@ -385,7 +438,7 @@
   }
 
   function showError(id, message) {
-    const el = $('#' + id);
+    const el = qs('#' + id);
     el.textContent = message;
     el.hidden = false;
   }
@@ -434,14 +487,13 @@
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   const streetTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    attribution: Tpl.render('map_attribution')
   }).addTo(map);
   const satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     maxZoom: 19,
     attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics'
   });
 
-  // bottom right, above the zoom buttons, so it never sits under the resident search bar
   const viewToggle = L.control({ position: 'bottomright' });
   viewToggle.onAdd = () => {
     const btn = L.DomUtil.create('button', 'view-toggle');
@@ -459,8 +511,6 @@
   };
   viewToggle.addTo(map);
 
-  // Reports are grouped when zoomed out; from zoom 16 every report shows as its own pin.
-  // The cluster colour depends on how many reports it holds compared with all shown reports.
   let clusterTotal = 0;
 
   function frequencyLevel(count) {
@@ -476,7 +526,7 @@
     const n = cluster.getChildCount();
     return L.divIcon({
       className: 'cluster-wrap',
-      html: `<div class="cluster f${frequencyLevel(n)}"><span>${n}</span></div>`,
+      html: Tpl.render('cluster_icon', { cls: 'f' + frequencyLevel(n), count: n }),
       iconSize: [40, 40]
     });
   }
@@ -484,7 +534,7 @@
   function homeClusterIcon(cluster) {
     return L.divIcon({
       className: 'cluster-wrap',
-      html: `<div class="cluster fh"><span>${cluster.getChildCount()}</span></div>`,
+      html: Tpl.render('cluster_icon', { cls: 'fh', count: cluster.getChildCount() }),
       iconSize: [40, 40]
     });
   }
@@ -492,7 +542,7 @@
   function unverifiedClusterIcon(cluster) {
     return L.divIcon({
       className: 'cluster-wrap',
-      html: `<div class="cluster fu"><span>${cluster.getChildCount()}</span></div>`,
+      html: Tpl.render('cluster_icon', { cls: 'fu', count: cluster.getChildCount() }),
       iconSize: [40, 40]
     });
   }
@@ -500,21 +550,17 @@
   const clusterOptions = { maxClusterRadius: 60, disableClusteringAtZoom: 16, showCoverageOnHover: false };
 
   const markerLayer = L.markerClusterGroup({ ...clusterOptions, iconCreateFunction: clusterIcon }).addTo(map);
-  // unverified reports group on their own, in grey, so they are never mixed into the verified counts
   const unverifiedLayer = L.markerClusterGroup({ ...clusterOptions, iconCreateFunction: unverifiedClusterIcon }).addTo(map);
-  // resolved reports are never grouped: each one stays its own pin
   const plainLayer = L.layerGroup().addTo(map);
   const areaLayer = L.layerGroup().addTo(map);
   const hotspotLayer = L.layerGroup();
 
-  // opens a marker's popup, zooming in first when it sits inside a cluster
   function revealMarker(group, marker, done) {
     if (!marker) return;
     if (!group.hasLayer(marker)) { if (marker._map && done) done(); return; }
     if (group.getVisibleParent(marker) === marker) { if (done) done(); return; }
     group.zoomToShowLayer(marker, () => { if (done) done(); });
   }
-  // opens a report's popup, zooming in first when it sits inside either kind of cluster
   function revealReport(id) {
     const m = markers.get(id);
     if (!m) return;
@@ -525,7 +571,6 @@
   let draftMarker = null;
   let meMarker = null;
 
-  const CHECK_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.500 6.300l2.400 2.400L9.500 3.600" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   function pinIcon(r) {
     const key = r.verified && TYPES[r.type] ? r.type : 'unverified';
@@ -534,13 +579,13 @@
   }
 
   function popupHTML(r) {
-    const photo = r.photo
-      ? `<img class="popup-photo" src="${esc(r.photo)}" alt="Photo attached to this report" loading="lazy">`
-      : '';
-    return photo +
-      `<div class="popup-title">${esc(r.title)}</div>` +
-      `<div class="popup-sub">${esc(TYPES[r.type]?.label)}, ${esc(STATUSES[r.status])}</div>` +
-      (r.desc ? `<p class="popup-desc">${esc(r.desc)}</p>` : '');
+    return Tpl.render('popup', {
+      photo: r.photo,
+      title: r.title,
+      typeLabel: TYPES[r.type]?.label,
+      statusLabel: STATUSES[r.status],
+      desc: r.desc
+    });
   }
 
   function renderMarkers() {
@@ -551,10 +596,8 @@
     markers.clear();
 
     const shown = filteredReports('map');
-    // only open, verified reports and official announcements are grouped
     const groupable = (r) => r.status !== 'resolved' && (r.source === 'official' || r.verified);
     clusterTotal = shown.filter(groupable).length;
-    // open community reports that no administrator has verified yet
     const pendingGroup = (r) => r.status !== 'resolved' && r.source !== 'official' && !r.verified;
     const batch = [];
     const pendingBatch = [];
@@ -573,7 +616,6 @@
       m.on('click', () => { if (!state.drawingGeo) selectReport(r.id, { fly: false }); });
       markers.set(r.id, m);
 
-      // a report that is not verified stays a single marker: no range, no grouping, until an admin verifies it
       if (groupable(r)) batch.push(m);
       else if (pendingGroup(r)) pendingBatch.push(m);
       else m.addTo(plainLayer);
@@ -591,9 +633,6 @@
     unverifiedLayer.addLayers(pendingBatch);
   }
 
-  // Frequently affected areas: the server (forms/hotspots.php) works out where the areas of
-  // verified reports, resolved or still open, overlap. Only that ground is drawn, and the
-  // colour gets stronger the more areas overlap there.
   const hot = { index: new Map(), data: null, sig: '' };
   const hotRenderer = L.canvas({ padding: 0.3 });
   const hotTip = L.tooltip({ direction: 'top', offset: [0, -4], opacity: 0.95 });
@@ -658,7 +697,7 @@
     draftMarker = L.marker([lat, lng], {
       icon: L.divIcon({
         className: 'pin-wrap',
-        html: '<div class="draft-pin"></div>',
+        html: Tpl.render('draft_pin'),
         iconSize: [18, 18],
         iconAnchor: [9, 9]
       }),
@@ -700,7 +739,7 @@
   function syncFilterControls() {
     [['#fSearch', 'q'], ['#fType', 'type'], ['#fStatus', 'status'], ['#fVerify', 'verify'],
      ['#fScope', 'scope'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
-      const el = $(sel);
+      const el = qs(sel);
       if (el) el.value = state.filters[key];
     });
   }
@@ -731,53 +770,44 @@
     return !!(f.q || f.type || f.status || f.verify || f.scope || f.from || f.to);
   }
 
-  const statusPill = (r) =>
-    `<span class="pill pill-status-${r.status}">${esc(STATUSES[r.status])}</span>`;
-
-  const verifyPill = (r) => r.verified
-    ? `<span class="pill pill-verified">${CHECK_SVG.replace('<svg', '<svg width="11" height="11"')}Verified</span>`
-    : '<span class="pill pill-unverified">Unverified</span>';
-
-  const minePill = (r) => isOwn(r) ? '<span class="pill pill-mine">Yours</span>' : '';
-  const affectsPill = (r) => affectsHome(r) ? '<span class="pill pill-affects">Affects your home</span>' : '';
-
-  const sourcePill = (r) => r.source === 'official'
-    ? '<span class="pill pill-official">Official announcement</span>' : '';
+function pillsHTML(r, opts = {}) {
+    return Tpl.render('pills', {
+      showStatus: !!opts.status,
+      status: r.status,
+      statusLabel: STATUSES[r.status],
+      verified: !!r.verified,
+      official: r.source === 'official',
+      mine: !!opts.mine && isOwn(r),
+      affects: !!opts.affects && affectsHome(r)
+    });
+  }
 
   function renderList() {
-    const list = $('#reportList');
+    const list = qs('#reportList');
     const items = filteredReports();
     const listBase = isAdmin() ? db.reports.filter((r) => r.status !== 'resolved').length : db.reports.length;
 
-    $('#resultCount').textContent =
+    qs('#resultCount').textContent =
       `${items.length} of ${listBase} report${listBase === 1 ? '' : 's'}`;
-    $('#clearFilters').hidden = !filtersActive();
+    qs('#clearFilters').hidden = !filtersActive();
 
     if (!items.length) {
-      list.innerHTML = db.reports.length ? `
-        <li class="empty">
-          <h3>No reports match</h3>
-          <p>Try a different search or clear the filters to see every report.</p>
-        </li>` : `
-        <li class="empty">
-          <h3>No reports yet</h3>
-          <p>Reports and announcements will show up here once they are posted.</p>
-        </li>`;
+      list.innerHTML = db.reports.length
+        ? Tpl.render('list_empty', { title: 'No reports match', text: 'Try a different search or clear the filters to see every report.' })
+        : Tpl.render('list_empty', { title: 'No reports yet', text: 'Reports and announcements will show up here once they are posted.' });
       return;
     }
 
-    list.innerHTML = items.map((r) => `
-      <li>
-        <button type="button" class="report-card${r.id === state.selectedId ? ' is-selected' : ''}"
-                data-id="${esc(r.id)}" style="--c:${TYPES[r.type]?.color || '#587079'}">
-          <h3>${esc(r.title)}</h3>
-          <div class="where">${esc(TYPES[r.type]?.label)} &middot; ${fmtDate.format(r.createdAt)}</div>
-          <div class="pills">
-            ${statusPill(r)}${verifyPill(r)}${sourcePill(r)}${minePill(r)}${affectsPill(r)}
-            <span class="time-ago">${ago(r.createdAt)}</span>
-          </div>
-        </button>
-      </li>`).join('');
+    list.innerHTML = items.map((r) => Tpl.render('report_card', {
+      id: r.id,
+      selected: r.id === state.selectedId,
+      color: TYPES[r.type]?.color || '#587079',
+      title: r.title,
+      typeLabel: TYPES[r.type]?.label,
+      date: fmtDate.format(r.createdAt),
+      pills: pillsHTML(r, { status: true, mine: true, affects: true }),
+      ago: ago(r.createdAt)
+    })).join('');
   }
 
   function coverageLabel(r) {
@@ -804,76 +834,55 @@
   }
 
   function renderDetail() {
-    const box = $('#viewDetail');
+    const box = qs('#viewDetail');
     const r = getReport(state.selectedId);
     if (!r) { showView('reports'); return; }
 
     const t = TYPES[r.type] || { label: r.type, color: '#587079' };
     const admin = isAdmin();
     const modify = canModify(r);
-    const alertBox = affectsHome(r)
-      ? '<p class="home-alert"><strong>This affects your home.</strong> Your home marker is inside the area this report covers.</p>'
-      : '';
 
-    const schedule = (r.startsAt || r.endsAt)
-      ? `<dt>Schedule</dt><dd>${r.startsAt ? fmtDate.format(r.startsAt) : 'Not set'} to ${r.endsAt ? fmtDate.format(r.endsAt) : 'Not set'}</dd>`
-      : '';
+    const statusOptions = Tpl.render('select_options', {
+      options: Object.entries(STATUSES).map(([k, v]) => ({ value: k, label: v, selected: k === r.status }))
+    });
 
-    const statusOptions = Object.entries(STATUSES)
-      .map(([k, v]) => `<option value="${k}"${k === r.status ? ' selected' : ''}>${v}</option>`).join('');
-
-    box.innerHTML = `
-      <div class="detail">
-        <button type="button" class="back" data-action="back">${state.from === 'dashboard' ? 'Back to dashboard' : state.from === 'insights' ? 'Back to insights' : state.from === 'history' ? 'Back to history' : 'Back to all reports'}</button>
-
-        <div class="detail-head" style="--c:${t.color}">
-          <h2>${esc(r.title)}</h2>
-          <div class="pills">${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
-        </div>
-
-        ${alertBox}
-        ${r.photo ? `<a class="detail-photo-link" href="${esc(r.photo)}" target="_blank" rel="noopener"><img class="detail-photo" src="${esc(r.photo)}" alt="Photo attached to this report" loading="lazy"></a>` : ''}
-        <p class="detail-desc">${r.desc ? esc(r.desc) : 'No details were added to this report.'}</p>
-
-        <dl class="facts">
-          <dt>Type</dt><dd>${esc(t.label)}</dd>
-          <dt>Coordinates</dt><dd>${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}</dd>
-          <dt>Posted by</dt><dd>${esc(r.author || 'Anonymous resident')}</dd>
-          <dt>Posted</dt><dd>${fmtDate.format(r.createdAt)} (${ago(r.createdAt)})</dd>
-          <dt>Verification</dt><dd>${r.verified ? 'Verified by an administrator' : 'Not yet verified'}</dd>
-          ${isOwn(r) ? `<dt>Resolution</dt><dd>${esc(STATUSES[r.status])}</dd>` : ''}
-          ${r.verified ? `<dt>Coverage</dt><dd>${esc(coverageLabel(r))}</dd>` : ''}
-          ${admin && r.verified ? `<dt>Residents in area</dt><dd>${esc(affectedText(r))}</dd>` : ''}
-          ${r.status === 'resolved' && r.resolvedAt ? `<dt>Resolved</dt><dd>${fmtDate.format(r.resolvedAt)}</dd>` : ''}
-          ${schedule}
-        </dl>
-
-        ${admin ? `
-        <div class="admin-box">
-          <h3>Admin controls</h3>
-          <div class="row">
-            <select id="adminStatus" aria-label="Change status">${statusOptions}</select>
-            <button type="button" class="btn btn-small" data-action="toggle-verify">
-              ${r.verified ? 'Mark as unverified' : 'Verify report'}
-            </button>
-            ${r.verified && r.status !== 'resolved' ? '<button type="button" class="btn btn-small" data-action="resend-verified">Resend emails</button>' : ''}
-          </div>
-        </div>` : ''}
-
-        <div class="actions">
-          <button type="button" class="btn" data-action="focus">Show on map</button>
-          ${admin && r.status !== 'resolved' ? '<button type="button" class="btn" data-action="resolve">Mark as resolved</button>' : ''}
-          ${admin && r.status === 'resolved' ? '<button type="button" class="btn" data-action="reopen">Reopen</button>' : ''}
-          ${admin ? '<button type="button" class="btn" data-action="history">View history</button>' : ''}
-          ${admin && r.source === 'official' && ['scheduled', 'ongoing'].includes(r.status) ? '<button type="button" class="btn" data-action="renotify">Send notice again</button>' : ''}
-          ${modify ? '<button type="button" class="btn" data-action="edit">Edit</button>' : ''}
-          ${modify && r.status !== 'resolved' ? '<button type="button" class="btn btn-danger" data-action="delete">Delete</button>' : ''}
-        </div>
-      </div>`;
+    box.innerHTML = Tpl.render('detail', {
+      backLabel: state.from === 'dashboard' ? 'Back to dashboard' : state.from === 'insights' ? 'Back to insights' : state.from === 'history' ? 'Back to history' : 'Back to all reports',
+      color: t.color,
+      title: r.title,
+      pills: pillsHTML(r, { status: true }),
+      affectsHome: affectsHome(r),
+      photo: r.photo,
+      description: r.desc ? r.desc : 'No details were added to this report.',
+      typeLabel: t.label,
+      coordinates: `${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}`,
+      author: r.author || 'Anonymous resident',
+      posted: `${fmtDate.format(r.createdAt)} (${ago(r.createdAt)})`,
+      verification: r.verified ? 'Verified by an administrator' : 'Not yet verified',
+      own: isOwn(r),
+      statusLabel: STATUSES[r.status],
+      verified: !!r.verified,
+      coverage: r.verified ? coverageLabel(r) : '',
+      showResidents: admin && r.verified,
+      residents: admin && r.verified ? affectedText(r) : '',
+      resolvedDate: r.status === 'resolved' && r.resolvedAt ? fmtDate.format(r.resolvedAt) : '',
+      hasSchedule: !!(r.startsAt || r.endsAt),
+      startText: r.startsAt ? fmtDate.format(r.startsAt) : 'Not set',
+      endText: r.endsAt ? fmtDate.format(r.endsAt) : 'Not set',
+      admin: admin,
+      statusOptions: statusOptions,
+      verifyLabel: r.verified ? 'Mark as unverified' : 'Verify report',
+      canResend: !!r.verified && r.status !== 'resolved',
+      canResolve: admin && r.status !== 'resolved',
+      canReopen: admin && r.status === 'resolved',
+      canRenotify: admin && r.source === 'official' && ['scheduled', 'ongoing'].includes(r.status),
+      modify: modify,
+      canDelete: modify && r.status !== 'resolved'
+    });
   }
 
   function renderInsights() {
-    const box = $('#viewInsights');
+    const box = qs('#viewInsights');
     const rs = db.reports;
     const total = rs.length;
     const active = rs.filter((r) => r.status === 'ongoing' || r.status === 'reported').length;
@@ -891,61 +900,37 @@
     const maxType = Math.max(1, ...byType.map((x) => x.n));
     const maxStatus = Math.max(1, ...byStatus.map((x) => x.n));
 
-    const bars = (rows, max) => rows.map((x) => `
-      <div class="bar-row">
-        <span>${esc(x.label)}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${(x.n / max) * 100}%;--c:${x.color}"></div></div>
-        <span class="bar-num">${x.n}</span>
-      </div>`).join('');
+    const bars = (rows, max) => rows.map((x) => ({ label: x.label, color: x.color, n: x.n, width: (x.n / max) * 100 }));
 
-    box.innerHTML = `
-      <div class="insights">
-        <h2>Water service summary</h2>
-        <p class="lead">Based on all ${total} records in the system.</p>
-
-        <div class="stat-strip">
-          <div class="stat"><b>${total}</b><span>Total reports</span></div>
-          <div class="stat"><b>${active}</b><span>Active now</span></div>
-          <div class="stat"><b>${scheduled}</b><span>Scheduled</span></div>
-          <div class="stat"><b>${pct}%</b><span>Verified</span></div>
-        </div>
-
-        <div class="block">
-          <h3>Reports by type</h3>
-          ${bars(byType, maxType)}
-        </div>
-
-        <div class="block">
-          <h3>Reports by status</h3>
-          ${bars(byStatus, maxStatus)}
-        </div>
-
-        <div class="insight-actions">
-          <button type="button" class="btn" data-action="export">Download records (CSV)</button>
-        </div>
-      </div>`;
+    box.innerHTML = Tpl.render('insights', {
+      total: total,
+      stats: statStrip([[total, 'Total reports'], [active, 'Active now'], [scheduled, 'Scheduled'], [pct + '%', 'Verified']]),
+      byType: bars(byType, maxType),
+      byStatus: bars(byStatus, maxStatus)
+    });
   }
 
-  const TAB_IDS = { reports: 'tabReports', insights: 'tabInsights', dashboard: 'tabDashboard', history: 'tabHistory' };
-  const VIEW_IDS = { reports: 'viewReports', detail: 'viewDetail', insights: 'viewInsights', dashboard: 'viewDashboard', history: 'viewHistory' };
+  const TAB_IDS = { reports: 'tabReports', insights: 'tabInsights', dashboard: 'tabDashboard', profile: 'tabProfile', history: 'tabHistory' };
+  const VIEW_IDS = { reports: 'viewReports', detail: 'viewDetail', insights: 'viewInsights', dashboard: 'viewDashboard', profile: 'viewProfile', history: 'viewHistory' };
 
   function activate(view) {
     const tab = view === 'detail' ? state.from : view;
-    Object.entries(VIEW_IDS).forEach(([k, id]) => { const el = $('#' + id); if (el) el.hidden = k !== view; });
+    Object.entries(VIEW_IDS).forEach(([k, id]) => { const el = qs('#' + id); if (el) el.hidden = k !== view; });
     Object.entries(TAB_IDS).forEach(([k, id]) => {
       const on = k === tab;
-      const el = $('#' + id);
+      const el = qs('#' + id);
       if (!el) return;
       el.classList.toggle('is-active', on);
       el.setAttribute('aria-selected', String(on));
     });
     state.view = view;
-    $('#panel').scrollTop = 0;
+    qs('#panel').scrollTop = 0;
   }
 
   function showView(name) {
     if (name === 'dashboard' && !currentUser()) name = 'reports';
     if (name === 'history' && !isAdmin()) name = 'reports';
+    if (name === 'profile' && (!currentUser() || isAdmin())) name = 'reports';
     if (name === 'detail') name = state.from;
     state.selectedId = null;
     activate(name);
@@ -953,6 +938,7 @@
     if (name === 'insights') renderInsights();
     if (name === 'dashboard') renderDashboard();
     if (name === 'history') renderHistory();
+    if (name === 'profile') openProfile();
     renderMarkers();
   }
 
@@ -985,37 +971,39 @@
 
   function reportRow(r, actions = '') {
     const t = TYPES[r.type] || { label: r.type, color: '#587079' };
-    return `
-      <div class="queue-item" style="--c:${t.color}">
-        <button type="button" class="queue-main" data-action="open" data-id="${esc(r.id)}">
-          <strong>${esc(r.title)}</strong>
-          <span>${esc(t.label)}, ${ago(r.createdAt)}</span>
-        </button>
-        <div class="pills">${statusPill(r)}${verifyPill(r)}${sourcePill(r)}</div>
-        <div class="queue-actions">${actions}</div>
-      </div>`;
+    return Tpl.render('queue_item', {
+      color: t.color,
+      id: r.id,
+      title: r.title,
+      typeLabel: t.label,
+      ago: ago(r.createdAt),
+      pills: pillsHTML(r, { status: true }),
+      actions: actions
+    });
   }
 
-  function statStrip(items) {
-    return `<div class="stat-strip">${items.map(([n, label]) =>
-      `<div class="stat"><b>${n}</b><span>${esc(label)}</span></div>`).join('')}</div>`;
+  function statStrip(items, wide) {
+    return Tpl.render('stat_strip', {
+      wide: !!wide,
+      stats: items.map(([n, label]) => ({ n: n, label: label }))
+    });
   }
 
   function renderDashboard() {
     const u = currentUser();
-    const box = $('#viewDashboard');
+    const box = qs('#viewDashboard');
     if (!u) { showView('reports'); return; }
     box.innerHTML = u.role === 'admin' ? adminDashboardHTML(u) : residentDashboardHTML(u);
   }
 
   function noteRow(n) {
-    return `
-      <div class="notice-item${n.read ? '' : ' is-unread'}">
-        <button type="button" class="queue-main" data-action="notif-open" data-nid="${esc(n.id)}" data-rid="${esc(n.reportId)}">
-          <strong>${esc(n.message)}</strong>
-          <span>${ago(n.createdAt)}${n.read ? '' : ' &middot; New'}</span>
-        </button>
-      </div>`;
+    return Tpl.render('notice_item', {
+      unread: !n.read,
+      id: n.id,
+      reportId: n.reportId,
+      message: n.message,
+      ago: ago(n.createdAt)
+    });
   }
 
   function residentDashboardHTML(u) {
@@ -1033,63 +1021,35 @@
 
     const noteRows = db.notifications.length
       ? db.notifications.slice(0, 5).map(noteRow).join('')
-      : '<p class="empty-inline">No interruption notices for your home. You will see one here, and get an email, when a scheduled interruption covers your home marker.</p>';
+      : Tpl.render('empty_inline', { text: 'No interruption notices for your home. You will see one here, and get an email, when a scheduled interruption covers your home marker.' });
 
     const mineRows = mine.length
       ? mine.slice(0, 3).map((r) => reportRow(r,
-          `<button type="button" class="btn btn-small" data-action="edit" data-id="${esc(r.id)}">Edit</button>
-           ${r.status === 'resolved' ? '' : `<button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="${esc(r.id)}">Delete</button>`}`)).join('')
-        + (mine.length > 3 ? `<p style="margin:10px 0 0"><button type="button" class="link-btn" data-action="my-reports">See all ${mine.length} of my reports</button></p>` : '')
-      : '<p class="empty-inline">You have not reported anything yet. Pin an issue on the map to start.</p>';
+          Tpl.render('queue_actions_mine', { id: r.id, canDelete: r.status !== 'resolved' }))).join('')
+      : Tpl.render('empty_inline', { text: 'You have not reported anything yet. Pin an issue on the map to start.' });
 
     const advisoryRows = advisories.length
       ? advisories.slice(0, 4).map((r) => reportRow(r)).join('')
-      : '<p class="empty-inline">No active announcements from the water provider.</p>';
+      : Tpl.render('empty_inline', { text: 'No active announcements from the water provider.' });
 
-    return `
-      <div class="insights">
-        <h2>Hello, ${esc(u.name.split(' ')[0])}</h2>
-        <p class="lead">Signed in as ${esc(u.email)}. Here is what is happening with water service.</p>
-
-        ${statStrip([
-          [advisories.length, 'Advisories'],
-          [communityOpen, 'Open reports'],
-          [near ? near.length : 0, 'Near my home'],
-          [open, 'My open reports']
-        ])}
-
-        <div class="block">
-          <h3>Notifications for my home ${unread ? `<span class="badge">${unread} new</span>` : ''}</h3>
-          ${noteRows}
-          ${unread ? '<p style="margin:10px 0 0"><button type="button" class="link-btn" data-action="notif-read-all">Mark all as read</button></p>' : ''}
-        </div>
-
-        <div class="block">
-          <h3>Quick access</h3>
-          <div class="insight-actions">
-            <button type="button" class="btn" data-action="my-reports">My reports (${mine.length})</button>
-            <button type="button" class="btn" data-action="all-reports">All reports</button>
-            <button type="button" class="btn" data-action="map">Open map</button>
-            <button type="button" class="btn btn-primary" data-action="new">Report an issue</button>
-          </div>
-        </div>
-
-        <div class="block">
-          <h3>Current announcements</h3>
-          ${advisoryRows}
-        </div>
-
-        <div class="block">
-          <h3>My latest reports</h3>
-          <p class="lead" style="margin:0 0 6px">${verified} verified, ${resolved} resolved.</p>
-          ${mineRows}
-        </div>
-
-        <div class="insight-actions">
-          <button type="button" class="btn" data-action="change-home">Change my home</button>
-          <button type="button" class="btn" data-action="insights">See area statistics</button>
-        </div>
-      </div>`;
+    return Tpl.render('resident_dashboard', {
+      firstName: u.name.split(' ')[0],
+      email: u.email,
+      stats: statStrip([
+        [advisories.length, 'Advisories'],
+        [communityOpen, 'Open reports'],
+        [near ? near.length : 0, 'Near my home'],
+        [open, 'My open reports']
+      ]),
+      unread: unread,
+      noteRows: noteRows,
+      advisoryRows: advisoryRows,
+      mineRows: mineRows,
+      moreMine: mine.length > 3,
+      mineCount: mine.length,
+      verified: verified,
+      resolved: resolved
+    });
   }
 
   function adminDashboardHTML(u) {
@@ -1107,45 +1067,27 @@
 
     const queueRows = pending.length
       ? pending.sort((a, b) => b.createdAt - a.createdAt).map((r) => reportRow(r,
-          `<button type="button" class="btn btn-small btn-primary" data-action="verify" data-id="${esc(r.id)}">Verify</button>
-           <button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="${esc(r.id)}">Remove</button>`)).join('')
-      : '<p class="empty-inline">Nothing to review. New community reports will show up here.</p>';
+          Tpl.render('queue_actions_pending', { id: r.id }))).join('')
+      : Tpl.render('empty_inline', { text: 'Nothing to review. New community reports will show up here.' });
 
     const liveRows = live.length
       ? live.map((r) => reportRow(r,
-          `<button type="button" class="btn btn-small" data-action="resolve" data-id="${esc(r.id)}">Mark as resolved</button>
-           <button type="button" class="btn btn-small" data-action="edit" data-id="${esc(r.id)}">Edit</button>`)).join('')
-      : '<p class="empty-inline">No ongoing or upcoming interruptions right now.</p>';
+          Tpl.render('queue_actions_live', { id: r.id }))).join('')
+      : Tpl.render('empty_inline', { text: 'No ongoing or upcoming interruptions right now.' });
 
-    return `
-      <div class="insights">
-        <h2>Admin dashboard</h2>
-        <p class="lead">Signed in as ${esc(u.name)}. Review resident reports and manage announcements.</p>
-
-        <div class="stat-strip stat-strip-3">
-          ${[[rs.length, 'Total reports'], [pending.length, 'Pending verification'], [verifiedN, 'Verified reports'],
-             [resolvedN, 'Resolved reports'], [upcoming.length, 'Upcoming interruptions'], [active, 'Active now']]
-            .map(([n, label]) => `<div class="stat"><b>${n}</b><span>${esc(label)}</span></div>`).join('')}
-        </div>
-
-        <div class="block">
-          <h3>Pending verification</h3>
-          ${queueRows}
-        </div>
-
-        <div class="block">
-          <h3>Ongoing and upcoming interruptions</h3>
-          ${liveRows}
-        </div>
-
-        <div class="insight-actions">
-          <button type="button" class="btn btn-primary" data-action="announce">Post announcement</button>
-          <button type="button" class="btn" data-action="history">Report history</button>
-          <button type="button" class="btn" data-action="test-mail">Send test email</button>
-          <button type="button" class="btn" data-action="insights">See area statistics</button>
-          <button type="button" class="btn" data-action="export">Download records (CSV)</button>
-        </div>
-      </div>`;
+    return Tpl.render('admin_dashboard', {
+      name: u.name,
+      stats: statStrip([
+        [rs.length, 'Total reports'],
+        [pending.length, 'Pending verification'],
+        [verifiedN, 'Verified reports'],
+        [resolvedN, 'Resolved reports'],
+        [upcoming.length, 'Upcoming interruptions'],
+        [active, 'Active now']
+      ], true),
+      queueRows: queueRows,
+      liveRows: liveRows
+    });
   }
 
   async function onDashboardClick(e) {
@@ -1185,7 +1127,7 @@
     if (a === 'all-reports') return openReportsTab();
     if (a === 'map') {
       focusHome();
-      const wrap = $('.mapwrap');
+      const wrap = qs('.mapwrap');
       if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
@@ -1214,17 +1156,235 @@
     if (a === 'export') return exportCSV();
   }
 
+  function saveStoredUser(patch) {
+    const u = currentUser();
+    if (!u) return;
+    try { sessionStorage.setItem(CONFIG.sessionKey, JSON.stringify({ ...u, ...patch })); } catch (e) { }
+  }
+
+  function applyProfile(p) {
+    saveStoredUser({ username: p.username, name: p.name || undefined, email: p.email, avatar: p.avatar || '' });
+    renderAuth();
+  }
+
+  function initials(name) {
+    const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+    return ((parts[0] || '?')[0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+  }
+
+  function avatarHTML(u, size) {
+    const px = `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.38)}px`;
+    return Tpl.render('avatar', { src: u && u.avatar, px: px, initials: initials(u && u.name) });
+  }
+
+  async function openProfile() {
+    renderProfile();
+    try {
+      const res = await api(API.profile, { action: 'get' });
+      applyProfile(res.profile);
+      if (state.view === 'profile') renderProfile();
+    } catch (err) {
+      const box = qs('#viewProfile');
+      if (box && !box.querySelector('.profile-load-error')) {
+        box.insertAdjacentHTML('afterbegin', Tpl.render('profile_error', { message: errMsg(err) }));
+      }
+    }
+  }
+
+  function renderProfile() {
+    const u = currentUser();
+    const box = qs('#viewProfile');
+    if (!u || !box) return;
+
+    box.innerHTML = Tpl.render('profile', {
+      avatar: avatarHTML(u, 96),
+      hasAvatar: !!u.avatar,
+      name: u.name,
+      username: u.username || '',
+      email: u.email || '',
+      maskedEmail: maskMail(u.email)
+    });
+  }
+
+  function maskMail(email) {
+    const [n, d] = String(email || '').split('@');
+    if (!d) return email || 'your email';
+    const keep = n.slice(0, 2);
+    return keep + '*'.repeat(Math.max(n.length - keep.length, 1)) + '@' + d;
+  }
+
+  function showFormError(sel, msg) {
+    const el = qs(sel);
+    if (!el) return;
+    el.textContent = msg || '';
+    el.hidden = !msg;
+  }
+
+  function squareAvatar(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        const out = Math.min(side, 400);
+        const c = document.createElement('canvas');
+        c.width = c.height = out;
+        c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, out, out);
+        URL.revokeObjectURL(url);
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error('That image could not be read.'))), 'image/jpeg', 0.88);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file is not a readable image.')); };
+      img.src = url;
+    });
+  }
+
+  let otpTimer = null;
+  function startResendCooldown(secs) {
+    const btn = qs('#pwResend');
+    if (!btn) return;
+    clearInterval(otpTimer);
+    let left = secs;
+    const tick = () => {
+      const b = qs('#pwResend');
+      if (!b) { clearInterval(otpTimer); return; }
+      if (left <= 0) { b.disabled = false; b.textContent = 'Resend code'; clearInterval(otpTimer); return; }
+      b.disabled = true; b.textContent = `Resend code (${left}s)`; left -= 1;
+    };
+    tick();
+    otpTimer = setInterval(tick, 1000);
+  }
+
+  async function sendOtp() {
+    const sendBtn = qs('#pwSendBtn');
+    if (sendBtn) sendBtn.disabled = true;
+    showFormError('#pwError', '');
+    try {
+      const res = await api(API.profile, { action: 'otp_send' });
+      qs('#pwStart').hidden = true;
+      qs('#pwForm').hidden = false;
+      qs('#pwNote').textContent = `${res.message} It expires in ${res.minutes} minutes.`;
+      qs('#pwCode').value = '';
+      qs('#pwCode').focus();
+      startResendCooldown(60);
+    } catch (err) {
+      if (qs('#pwForm').hidden) {
+        Swal.fire({ icon: 'error', title: 'Code not sent', text: errMsg(err), confirmButtonText: 'OK' });
+      } else {
+        showFormError('#pwError', errMsg(err));
+      }
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+    }
+  }
+
+  async function onProfileClick(e) {
+    const b = e.target.closest('[data-profile]');
+    if (!b) return;
+    const a = b.dataset.profile;
+
+    if (a === 'pick') return qs('#pAvatarInput').click();
+
+    if (a === 'avatar-remove') {
+      if (!(await confirmAction({ title: 'Remove your profile picture?', confirmText: 'Remove' }))) return;
+      try {
+        const res = await api(API.profile, { action: 'avatar_remove' });
+        applyProfile(res.profile);
+        renderProfile();
+        toast('Profile picture removed.');
+      } catch (err) { Swal.fire({ icon: 'error', title: 'Could not remove', text: errMsg(err), confirmButtonText: 'OK' }); }
+      return;
+    }
+
+    if (a === 'otp-send') return sendOtp();
+
+    if (a === 'otp-cancel') {
+      clearInterval(otpTimer);
+      qs('#pwForm').hidden = true;
+      qs('#pwStart').hidden = false;
+      showFormError('#pwError', '');
+    }
+  }
+
+  async function onProfileChange(e) {
+    if (e.target.id !== 'pAvatarInput') return;
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      return Swal.fire({ icon: 'error', title: 'Wrong file type', text: 'Choose a JPG, PNG or WebP image.', confirmButtonText: 'OK' });
+    }
+    try {
+      const blob = await squareAvatar(file);
+      const res = await api(API.profile, { action: 'avatar', avatar: blob });
+      applyProfile(res.profile);
+      renderProfile();
+      toast('Profile picture updated.');
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Picture not saved', text: errMsg(err), confirmButtonText: 'OK' });
+    }
+  }
+
+  async function onProfileSubmit(e) {
+    e.preventDefault();
+
+    if (e.target.id === 'pForm') {
+      const username = qs('#pUsername').value.trim();
+      const email = qs('#pEmail').value.trim();
+      showFormError('#pError', '');
+      if (!/^[A-Za-z0-9_.-]{3,30}$/.test(username)) return showFormError('#pError', 'Username must be 3 to 30 letters, numbers, dots, dashes or underscores.');
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return showFormError('#pError', 'Enter a valid email address.');
+
+      const btn = qs('#pSave');
+      btn.disabled = true;
+      try {
+        const res = await api(API.profile, { action: 'save', username, email });
+        applyProfile(res.profile);
+        renderProfile();
+        toast('Profile updated.');
+      } catch (err) {
+        showFormError('#pError', errMsg(err));
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    if (e.target.id === 'pwForm') {
+      const code = qs('#pwCode').value.replace(/\D/g, '');
+      const pw = qs('#pwNew').value;
+      const again = qs('#pwConfirm').value;
+      showFormError('#pwError', '');
+      if (code.length !== 6) return showFormError('#pwError', 'Enter the 6-digit code from your email.');
+      if (pw.length < 8) return showFormError('#pwError', 'Password must be at least 8 characters.');
+      if (pw !== again) return showFormError('#pwError', 'The two passwords do not match.');
+
+      const btn = qs('#pwSubmit');
+      btn.disabled = true;
+      try {
+        await api(API.profile, { action: 'password_change', code, password: pw });
+        clearInterval(otpTimer);
+        renderProfile();
+        Swal.fire({ icon: 'success', title: 'Password changed', text: 'Use your new password the next time you log in.', confirmButtonText: 'OK' });
+      } catch (err) {
+        showFormError('#pwError', errMsg(err));
+        btn.disabled = false;
+      }
+    }
+  }
+
   function renderAuth() {
     const u = currentUser();
     const admin = !!u && u.role === 'admin';
 
-    $('#btnAnnounce').hidden = !admin;
+    qs('#btnAnnounce').hidden = !admin;
     const unread = admin ? 0 : unreadNotes().length;
-    $('#tabDashboard').textContent = admin ? 'Admin dashboard' : (unread ? `My dashboard (${unread})` : 'My dashboard');
+    qs('#tabDashboard').textContent = admin ? 'Admin dashboard' : (unread ? `My dashboard (${unread})` : 'My dashboard');
 
-    $('#authArea').innerHTML = u ? `
-      <div class="user-chip"><strong>${esc(u.name)}</strong><span>${admin ? 'Administrator' : esc(u.email)}</span></div>
-      <button type="button" class="btn btn-ghost-light btn-small" data-auth="logout">Log out</button>` : '';
+    qs('#authArea').innerHTML = u ? Tpl.render('auth_area', {
+      showProfile: !admin,
+      avatar: admin ? '' : avatarHTML(u, 34),
+      name: u.name,
+      subtitle: admin ? 'Administrator' : u.email
+    }) : '';
   }
 
   function logout() {
@@ -1238,16 +1398,16 @@
   function startPlacing(callback) {
     state.placing = true;
     state.onPlace = callback;
-    $('#map').classList.add('is-placing');
-    $('#placingBanner').hidden = false;
+    qs('#map').classList.add('is-placing');
+    qs('#placingBanner').hidden = false;
     map.closePopup();
   }
 
   function stopPlacing() {
     state.placing = false;
     state.onPlace = null;
-    $('#map').classList.remove('is-placing');
-    $('#placingBanner').hidden = true;
+    qs('#map').classList.remove('is-placing');
+    qs('#placingBanner').hidden = true;
   }
 
   map.on('click', (e) => {
@@ -1272,57 +1432,60 @@
   }
 
   function fillSelect(sel, options, current) {
-    sel.innerHTML = options
-      .map(([v, l]) => `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(l)}</option>`)
-      .join('');
+    sel.innerHTML = Tpl.render('select_options', {
+      options: options.map(([v, l]) => ({ value: v, label: l, selected: v === current }))
+    });
   }
 
   function updateLocText() {
     const d = state.draft;
-    $('#locText').textContent = d ? `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}` : 'No pin yet';
+    qs('#locText').textContent = d ? `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}` : 'No pin yet';
   }
 
   function toggleScheduleRow() {
-    $('#scheduleRow').hidden = !$('#rOfficial').checked;
+    qs('#scheduleRow').hidden = !qs('#rOfficial').checked;
     updateGeoUi();
   }
 
   function fillRangeSelect(type, current) {
-    const sel = $('#rRange');
-    sel.innerHTML = Object.keys(RANGE_LABELS).map((k) =>
-      `<option value="${k}">${RANGE_LABELS[k]} (${rangeFor(type, k)} m)</option>`).join('') +
-      '<option value="custom">Custom size</option>';
+    const sel = qs('#rRange');
+    sel.innerHTML = Tpl.render('select_options', {
+      options: [
+        ...Object.keys(RANGE_LABELS).map((k) => ({ value: k, label: `${RANGE_LABELS[k]} (${rangeFor(type, k)} m)`, selected: false })),
+        { value: 'custom', label: 'Custom size', selected: false }
+      ]
+    });
     sel.value = current;
   }
 
   function regenGeo() {
     const d = state.draft;
-    const kind = $('#rShape').value;
+    const kind = qs('#rShape').value;
     if (!d) return;
-    const radius = Number($('#rRadius').value) || 1000;
+    const radius = Number(qs('#rRadius').value) || 1000;
     state.draftGeo = kind === 'circle' ? null : defaultGeo(kind, d.lat, d.lng, radius);
     updateGeoUi();
   }
 
   function onTypeChange() {
-    const key = $('#rRange').value;
-    fillRangeSelect($('#rType').value, key);
+    const key = qs('#rRange').value;
+    fillRangeSelect(qs('#rType').value, key);
     if (key !== 'custom') {
-      $('#rRadius').value = rangeFor($('#rType').value, key);
+      qs('#rRadius').value = rangeFor(qs('#rType').value, key);
       regenGeo();
     }
   }
 
   function onRangeChange() {
-    const key = $('#rRange').value;
-    if (key !== 'custom') $('#rRadius').value = rangeFor($('#rType').value, key);
+    const key = qs('#rRange').value;
+    if (key !== 'custom') qs('#rRadius').value = rangeFor(qs('#rType').value, key);
     regenGeo();
   }
 
   function onShapeChange() { regenGeo(); }
 
   function onRadiusInput() {
-    $('#rRange').value = 'custom';
+    qs('#rRange').value = 'custom';
     regenGeo();
   }
 
@@ -1345,46 +1508,46 @@
   }
 
   function renderPhotoUi(existing) {
-    const box = $('#photoPreview');
+    const box = qs('#photoPreview');
     if (photoUrl) { URL.revokeObjectURL(photoUrl); photoUrl = null; }
     if (state.photoBlob) {
       photoUrl = URL.createObjectURL(state.photoBlob);
-      box.innerHTML = `<img src="${photoUrl}" alt="Selected photo preview">`;
-      $('#photoClear').hidden = false;
-      $('#photoRemoveField').hidden = true;
+      box.innerHTML = Tpl.render('photo_preview', { src: photoUrl, alt: 'Selected photo preview' });
+      qs('#photoClear').hidden = false;
+      qs('#photoRemoveField').hidden = true;
     } else if (existing) {
-      box.innerHTML = `<img src="${esc(existing)}" alt="Current photo">`;
-      $('#photoClear').hidden = true;
-      $('#photoRemoveField').hidden = false;
+      box.innerHTML = Tpl.render('photo_preview', { src: existing, alt: 'Current photo' });
+      qs('#photoClear').hidden = true;
+      qs('#photoRemoveField').hidden = false;
     } else {
       box.innerHTML = '';
-      $('#photoClear').hidden = true;
-      $('#photoRemoveField').hidden = true;
+      qs('#photoClear').hidden = true;
+      qs('#photoRemoveField').hidden = true;
     }
   }
 
   async function onPhotoPicked() {
-    const file = $('#rPhoto').files[0];
+    const file = qs('#rPhoto').files[0];
     if (!file) return;
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
-      $('#rPhoto').value = '';
+      qs('#rPhoto').value = '';
       return showError('reportError', 'Choose a JPG, PNG or WebP photo.');
     }
     try {
       state.photoBlob = await loadPhotoBlob(file);
-      $('#reportError').hidden = true;
-      $('#rPhotoRemove').checked = false;
+      qs('#reportError').hidden = true;
+      qs('#rPhotoRemove').checked = false;
       const editing = state.editingId ? getReport(state.editingId) : null;
       renderPhotoUi(editing && editing.photo);
     } catch (e) {
-      $('#rPhoto').value = '';
+      qs('#rPhoto').value = '';
       showError('reportError', 'That photo could not be read. Try a different one.');
     }
   }
 
   function clearPhoto() {
     state.photoBlob = null;
-    $('#rPhoto').value = '';
+    qs('#rPhoto').value = '';
     const editing = state.editingId ? getReport(state.editingId) : null;
     renderPhotoUi(editing && editing.photo);
   }
@@ -1396,51 +1559,51 @@
     state.verifying = verifying;
     state.draft = { lat: editing ? report.lat : lat, lng: editing ? report.lng : lng };
 
-    $('#reportTitle').textContent = verifying ? 'Verify report' : editing ? 'Edit report' : (official ? 'Post announcement' : 'Report an issue');
-    $('#reportSubmit').textContent = verifying ? 'Verify report' : editing ? 'Save changes' : (official ? 'Post announcement' : 'Submit report');
+    qs('#reportTitle').textContent = verifying ? 'Verify report' : editing ? 'Edit report' : (official ? 'Post announcement' : 'Report an issue');
+    qs('#reportSubmit').textContent = verifying ? 'Verify report' : editing ? 'Save changes' : (official ? 'Post announcement' : 'Submit report');
 
     const type = report?.type || 'interruption';
-    fillSelect($('#rType'), Object.entries(TYPES).map(([k, v]) => [k, v.label]), type);
+    fillSelect(qs('#rType'), Object.entries(TYPES).map(([k, v]) => [k, v.label]), type);
 
-    $('#rTitleInput').value = report?.title || '';
-    $('#rDesc').value = report?.desc || '';
+    qs('#rTitleInput').value = report?.title || '';
+    qs('#rDesc').value = report?.desc || '';
 
     const statusKeys = admin ? Object.keys(STATUSES) : ['reported', 'ongoing', 'resolved'];
-    fillSelect($('#rStatus'), statusKeys.map((k) => [k, STATUSES[k]]),
+    fillSelect(qs('#rStatus'), statusKeys.map((k) => [k, STATUSES[k]]),
       report?.status || (official ? 'scheduled' : 'reported'));
-    $('#rStatusField').hidden = !(admin || editing);
+    qs('#rStatusField').hidden = !(admin || editing);
 
-    $('#officialBox').hidden = !admin;
-    $('#rOfficial').checked = editing ? report.source === 'official' : official;
-    $('#rStarts').value = toLocalInput(report?.startsAt);
-    $('#rEnds').value = toLocalInput(report?.endsAt);
+    qs('#officialBox').hidden = !admin;
+    qs('#rOfficial').checked = editing ? report.source === 'official' : official;
+    qs('#rStarts').value = toLocalInput(report?.startsAt);
+    qs('#rEnds').value = toLocalInput(report?.endsAt);
 
     if (!keepGeo) {
       state.draftGeo = report?.geofence || null;
       state.photoBlob = null;
-      $('#rPhoto').value = '';
-      $('#rPhotoRemove').checked = false;
+      qs('#rPhoto').value = '';
+      qs('#rPhotoRemove').checked = false;
     }
-    if ($('#rShape')) {
-      $('#rShape').value = geoKind(report?.geofence);
+    if (qs('#rShape')) {
+      qs('#rShape').value = geoKind(report?.geofence);
       if (editing) {
-        $('#rRadius').value = report.radius || rangeFor(type, 'standard');
+        qs('#rRadius').value = report.radius || rangeFor(type, 'standard');
         fillRangeSelect(type, verifying && !report.verified ? 'standard' : 'custom');
         if (verifying && !report.verified && !keepGeo) onRangeChange();
       } else {
-        $('#rRadius').value = rangeFor(type, 'standard');
+        qs('#rRadius').value = rangeFor(type, 'standard');
         fillRangeSelect(type, 'standard');
       }
     }
     renderPhotoUi(report && report.photo);
     toggleScheduleRow();
 
-    $('#reportError').hidden = true;
+    qs('#reportError').hidden = true;
     updateLocText();
     setDraftMarker(state.draft.lat, state.draft.lng);
     updateGeoUi();
 
-    const dlg = $('#reportDialog');
+    const dlg = qs('#reportDialog');
     if (!dlg.open) dlg.showModal();
   }
 
@@ -1454,7 +1617,7 @@
     const verifying = state.verifying;
     const snapshot = captureForm();
     const geo = state.draftGeo;
-    $('#reportDialog').close();
+    qs('#reportDialog').close();
     const editing = state.editingId ? getReport(state.editingId) : null;
     startPlacing((lat, lng) => {
       state.draftGeo = geo;
@@ -1470,20 +1633,20 @@
     const u = currentUser();
     if (!u) return showError('reportError', 'Log in to submit a report.');
 
-    const title = $('#rTitleInput').value.trim();
+    const title = qs('#rTitleInput').value.trim();
     if (!title) return showError('reportError', 'Add a short title so others know what is happening.');
     if (!state.draft) return showError('reportError', 'Pin the location on the map first.');
 
     const admin = u.role === 'admin';
-    const official = admin && $('#rOfficial').checked;
-    const startsAt = $('#rStarts').value ? new Date($('#rStarts').value).getTime() : null;
-    const endsAt = $('#rEnds').value ? new Date($('#rEnds').value).getTime() : null;
+    const official = admin && qs('#rOfficial').checked;
+    const startsAt = qs('#rStarts').value ? new Date(qs('#rStarts').value).getTime() : null;
+    const endsAt = qs('#rEnds').value ? new Date(qs('#rEnds').value).getTime() : null;
     if (official && startsAt && endsAt && endsAt < startsAt) {
       return showError('reportError', 'The end time is before the start time. Check the schedule.');
     }
 
-    const radius = admin ? Number($('#rRadius').value) : 0;
-    const kind = admin ? $('#rShape').value : 'circle';
+    const radius = admin ? Number(qs('#rRadius').value) : 0;
+    const kind = admin ? qs('#rShape').value : 'circle';
     if (admin) {
       if (!Number.isInteger(radius) || radius < 100 || radius > 10000) {
         return showError('reportError', 'The radius must be a whole number from 100 to 10000 meters.');
@@ -1497,16 +1660,16 @@
     const editing = !!state.editingId;
     const payload = {
       action: editing ? 'update' : 'create',
-      type: $('#rType').value,
+      type: qs('#rType').value,
       title,
-      desc: $('#rDesc').value.trim(),
+      desc: qs('#rDesc').value.trim(),
       lat: state.draft.lat,
       lng: state.draft.lng
     };
     if (state.photoBlob) payload.photo = state.photoBlob;
-    else if (editing && $('#rPhotoRemove').checked) payload.removePhoto = '1';
+    else if (editing && qs('#rPhotoRemove').checked) payload.removePhoto = '1';
     if (editing) payload.id = state.editingId;
-    if (!$('#rStatusField').hidden) payload.status = $('#rStatus').value;
+    if (!qs('#rStatusField').hidden) payload.status = qs('#rStatus').value;
     if (admin) {
       payload.radius = String(radius);
       payload.geofence = kind !== 'circle' && state.draftGeo ? JSON.stringify(state.draftGeo) : '';
@@ -1516,7 +1679,7 @@
       payload.endsAt = official && endsAt ? endsAt : '';
     }
 
-    const btn = $('#reportSubmit');
+    const btn = qs('#reportSubmit');
     btn.disabled = true;
     try {
       const data = await api(API.reports, payload);
@@ -1530,7 +1693,7 @@
       state.draft = null;
       state.draftGeo = null;
       state.photoBlob = null;
-      $('#reportDialog').close();
+      qs('#reportDialog').close();
       refresh();
       selectReport(saved.id, { fly: true });
     } catch (err) {
@@ -1787,9 +1950,7 @@
     if (homeImgOk === false) {
       return L.divIcon({
         className: 'pin-wrap',
-        html: '<div style="width:34px;height:34px;border-radius:50%;background:#08768b;border:3px solid #fff;' +
-              'box-shadow:0 2px 6px rgba(16,48,59,.45);display:grid;place-items:center;color:#fff">' +
-              '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z" fill="currentColor"/></svg></div>',
+        html: Tpl.render('home_icon_fallback'),
         iconSize: [34, 34],
         iconAnchor: [17, 17]
       });
@@ -1817,9 +1978,11 @@
       return Swal.fire({
         icon: 'success',
         title: 'Welcome, administrator',
-        html: `<p style="margin:0">${waiting
-          ? `${waiting} report${waiting === 1 ? ' is' : 's are'} waiting for verification.`
-          : 'No reports are waiting for verification.'}</p>`,
+        html: Tpl.render('welcome_admin', {
+          text: waiting
+            ? `${waiting} report${waiting === 1 ? ' is' : 's are'} waiting for verification.`
+            : 'No reports are waiting for verification.'
+        }),
         confirmButtonText: 'Open dashboard'
       });
     }
@@ -1827,13 +1990,18 @@
     const a = homeArea();
     const near = openReportsNearHome();
     const unread = unreadNotes().length;
-    const where = a
-      ? `<p style="margin:0 0 8px">Your home is marked on the map.</p>
-         <p style="margin:0">${near.length
-           ? `${near.length} open report${near.length === 1 ? '' : 's'} cover${near.length === 1 ? 's' : ''} your home.`
-           : 'No open reports cover your home.'}</p>
-         ${unread ? `<p style="margin:8px 0 0"><b>${unread}</b> interruption notice${unread === 1 ? '' : 's'} cover${unread === 1 ? 's' : ''} your home. Check your dashboard.</p>` : ''}`
-      : '<p style="margin:0">You have not set your home on the map yet.</p>';
+    const coverText = a
+      ? (near.length
+        ? `${near.length} open report${near.length === 1 ? '' : 's'} cover${near.length === 1 ? 's' : ''} your home.`
+        : 'No open reports cover your home.')
+      : '';
+    const where = Tpl.render('welcome_resident', {
+      hasHome: !!a,
+      coverText: coverText,
+      unread: unread,
+      plural: unread === 1 ? '' : 's',
+      verb: unread === 1 ? 's' : ''
+    });
 
     return Swal.fire({
       icon: (near && near.length) || unread ? 'warning' : 'success',
@@ -1853,9 +2021,9 @@
 
   function lockApp(on) {
     document.body.classList.toggle('needs-home', on);
-    $('#panel').inert = on;
-    $('.map-tools').inert = on;
-    $('#btnNewReport').disabled = on;
+    qs('#panel').inert = on;
+    qs('.map-tools').inert = on;
+    qs('#btnNewReport').disabled = on;
   }
 
   function showHomeBanner(force) {
@@ -1863,14 +2031,13 @@
       homeBanner = document.createElement('div');
       homeBanner.className = 'placing-banner';
       homeBanner.setAttribute('role', 'status');
-      $('.mapwrap').appendChild(homeBanner);
+      qs('.mapwrap').appendChild(homeBanner);
       homeBanner.addEventListener('click', onHomeBannerClick);
     }
-    homeBanner.innerHTML = `
-      <strong>${force ? 'Set your home to continue' : 'Choose your home'}</strong>
-      <span>Click the map where your home is.</span>
-      <button type="button" class="btn btn-small" data-home="locate">Use my location</button>
-      ${force ? '' : '<button type="button" class="btn btn-small btn-quiet" data-home="cancel">Cancel</button>'}`;
+    homeBanner.innerHTML = Tpl.render('home_banner', {
+      title: force ? 'Set your home to continue' : 'Choose your home',
+      cancellable: !force
+    });
     homeBanner.hidden = false;
   }
 
@@ -1895,7 +2062,7 @@
     if (state.placing) { stopPlacing(); clearDraftMarker(); }
     state.settingHome = true;
     state.forceHome = force;
-    $('#map').classList.add('is-placing');
+    qs('#map').classList.add('is-placing');
     map.closePopup();
     showHomeBanner(force);
 
@@ -1910,12 +2077,11 @@
 
   function stopHomeSetup() {
     state.settingHome = false;
-    $('#map').classList.remove('is-placing');
+    qs('#map').classList.remove('is-placing');
     if (homeBanner) homeBanner.hidden = true;
     if (homeDraft) { map.removeLayer(homeDraft); homeDraft = null; }
   }
 
-  // Step 1: which barangay is the home in? Asked every time a home is placed or moved.
   async function askBarangay() {
     const moving = !!myHome;
     const res = await Swal.fire({
@@ -1930,12 +2096,21 @@
       confirmButtonText: 'Next',
       cancelButtonText: moving ? 'Keep current home' : 'Choose again',
       allowOutsideClick: false,
-      reverseButtons: true
+      reverseButtons: true,
+      didOpen: (popup) => {
+        const sel = popup.querySelector('select.swal2-select');
+        if (sel) {
+          sel.style.width = 'min(300px, calc(100% - 4em))';
+          sel.style.maxWidth = '300px';
+          sel.style.margin = '14px auto 0';
+          sel.style.boxSizing = 'border-box';
+          sel.style.display = 'block';
+        }
+      }
     });
     return res.isConfirmed ? res.value : null;
   }
 
-  // Step 2: confirm the home. Returns the chosen barangay, or null when cancelled.
   async function askHomeConfirm(lat, lng) {
     const barangay = await askBarangay();
     if (!barangay) return null;
@@ -1945,10 +2120,7 @@
     const res = await Swal.fire({
       icon: 'question',
       title: moving ? 'Move your home marker?' : 'Set this as your home?',
-      html: moving
-        ? `<p style="margin:0 0 6px">Barangay: <b>${esc(barangay)}</b><br>New spot: ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>About ${dist} m from your current home.</p>
-           <p style="margin:0;font-size:14px;color:#587079">Interruption notices will follow the new location.</p>`
-        : `<p style="margin:0">Barangay: <b>${esc(barangay)}</b><br>${lat.toFixed(5)}, ${lng.toFixed(5)}</p>`,
+html: Tpl.render('home_confirm', { moving: moving, barangay: barangay, coords: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, dist: dist }),
       showCancelButton: true,
       confirmButtonText: moving ? 'Yes, move my home' : 'Yes, this is my home',
       cancelButtonText: moving ? 'Keep current home' : 'Choose again',
@@ -2045,9 +2217,8 @@
 
     userHomes.forEach((h) => {
       const marker = L.marker([h.lat, h.lng], { icon: homeIcon(), title: h.name });
-      marker.bindPopup(
-        `<div class="popup-title">${esc(h.name)}</div>` +
-        `<div class="popup-sub">@${esc(h.username)}<br>${esc(h.address)}</div>`,
+marker.bindPopup(
+        Tpl.render('user_popup', { name: h.name, username: h.username, address: h.address }),
         { closeButton: false }
       );
       marker.addTo(usersLayer);
@@ -2060,21 +2231,11 @@
 
     const box = document.createElement('div');
     box.className = 'map-search';
-    box.innerHTML = `
-      <label class="sr-only" for="userSearch">Search residents</label>
-      <div class="search-field">
-        <svg class="search-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/>
-          <path d="M15.5 15.5 21 21" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-        </svg>
-        <input type="search" id="userSearch" placeholder="Search a resident or barangay" autocomplete="off"
-               role="combobox" aria-expanded="false" aria-controls="userSuggest" aria-autocomplete="list">
-      </div>
-      <ul class="suggest" id="userSuggest" role="listbox" hidden></ul>`;
-    $('.mapwrap').appendChild(box);
+box.innerHTML = Tpl.render('user_search');
+    qs('.mapwrap').appendChild(box);
 
-    const input = $('#userSearch');
-    const list = $('#userSuggest');
+    const input = qs('#userSearch');
+    const list = qs('#userSuggest');
     let items = [];
     let active = -1;
     let timer = null;
@@ -2092,15 +2253,19 @@
     }
 
     function render() {
-      if (!items.length) {
-        list.innerHTML = '<li class="suggest-empty">No residents found.</li>';
+if (!items.length) {
+        list.innerHTML = Tpl.render('suggest_empty');
       } else {
-        list.innerHTML = items.map((r, i) => `
-          <li role="option" data-i="${i}" class="${r.hasHome ? '' : 'no-home'}">
-            <strong>${esc(r.name)}</strong>
-            <span>@${esc(r.username)} &middot; ${esc(r.address)}</span>
-            ${r.hasHome ? '' : '<em>No home set yet</em>'}
-          </li>`).join('');
+        list.innerHTML = Tpl.render('suggest_items', {
+          rows: items.map((r, i) => ({
+            i: i,
+            cls: r.hasHome ? '' : 'no-home',
+            name: r.name,
+            username: r.username,
+            address: r.address,
+            hasHome: !!r.hasHome
+          }))
+        });
       }
       list.hidden = false;
       input.setAttribute('aria-expanded', 'true');
@@ -2196,15 +2361,16 @@
       entries = data.log;
     } catch (err) { return toast(errMsg(err), 'error'); }
 
-    const rows = entries.length
-      ? entries.map((e) => `<li style="margin:0 0 8px"><b>${esc(logText(e))}</b><br>
-          <span style="font-size:13px;color:#587079">${fmtDate.format(e.createdAt)} by ${esc(e.actor || 'unknown')}</span></li>`).join('')
-      : '<li>No changes were recorded for this report yet.</li>';
-
     Swal.fire({
       title: 'Report history',
-      html: `<p style="margin:0 0 10px;font-weight:600">${esc(r.title)}</p>
-             <ul style="text-align:left;margin:0;padding-left:1.1em;max-height:320px;overflow:auto">${rows}</ul>`,
+      html: Tpl.render('report_log_dialog', {
+        title: r.title,
+        entries: entries.map((e) => ({
+          text: logText(e),
+          when: fmtDate.format(e.createdAt),
+          actor: e.actor || 'unknown'
+        }))
+      }),
       confirmButtonText: 'Close'
     });
   }
@@ -2212,35 +2378,21 @@
   const histTime = (r) => r.resolvedAt || r.createdAt;
 
   function renderHistory() {
-    const box = $('#viewHistory');
+    const box = qs('#viewHistory');
     if (!box) return;
     const h = state.history;
-    box.innerHTML = `
-      <div class="insights">
-        <h2>Report history</h2>
-        <p class="lead">Resolved reports leave the active map but stay stored here, with a log of every change.</p>
-
-        <div class="seg" role="tablist" aria-label="History sections">
-          <button type="button" class="seg-btn${h.tab === 'resolved' ? ' is-active' : ''}" data-action="hist-tab" data-tab="resolved">Resolved reports</button>
-          <button type="button" class="seg-btn${h.tab === 'log' ? ' is-active' : ''}" data-action="hist-tab" data-tab="log">Activity log</button>
-        </div>
-
-        <div class="hist-controls">
-          <label class="search"><span class="sr-only">Search history</span>
-            <input type="search" id="hSearch" placeholder="Search by title, area, or person" value="${esc(h.q)}" autocomplete="off"></label>
-          <div class="filter-row filter-row-2">
-            <label class="date-field"><span>From</span><input type="date" id="hFrom" value="${esc(h.from)}"></label>
-            <label class="date-field"><span>To</span><input type="date" id="hTo" value="${esc(h.to)}"></label>
-          </div>
-        </div>
-
-        <div id="histBody"></div>
-      </div>`;
+    box.innerHTML = Tpl.render('history_view', {
+      resolvedTab: h.tab === 'resolved',
+      logTab: h.tab === 'log',
+      q: h.q,
+      from: h.from,
+      to: h.to
+    });
 
     if (h.tab === 'log') {
       loadLog().then(renderHistoryBody).catch((err) => {
-        const b = $('#histBody');
-        if (b) b.innerHTML = `<p class="empty-inline">${esc(errMsg(err))}</p>`;
+        const b = qs('#histBody');
+        if (b) b.innerHTML = Tpl.render('empty_inline', { text: errMsg(err) });
       });
     }
     renderHistoryBody();
@@ -2254,7 +2406,7 @@
   }
 
   function renderHistoryBody() {
-    const body = $('#histBody');
+    const body = qs('#histBody');
     if (!body) return;
     const h = state.history;
     const needle = h.q.trim().toLowerCase();
@@ -2266,22 +2418,21 @@
         .filter((r) => !needle || `${r.title} ${r.desc} ${r.author || ''}`.toLowerCase().includes(needle))
         .sort((a, b) => histTime(b) - histTime(a));
 
-      body.innerHTML = `<p class="lead" style="margin:0 0 6px">${items.length} resolved report${items.length === 1 ? '' : 's'}.</p>` +
-        (items.length ? items.map((r) => {
+      body.innerHTML = Tpl.render('history_resolved', {
+        count: items.length,
+        plural: items.length === 1 ? '' : 's',
+        rows: items.map((r) => {
           const t = TYPES[r.type] || { label: r.type, color: '#587079' };
-          return `
-            <div class="queue-item" style="--c:${t.color}">
-              <button type="button" class="queue-main" data-action="open" data-id="${esc(r.id)}">
-                <strong>${esc(r.title)}</strong>
-                <span>${esc(t.label)}. ${r.resolvedAt ? 'Resolved ' + fmtDate.format(r.resolvedAt) : 'Posted ' + fmtDate.format(r.createdAt)}</span>
-              </button>
-              <div class="pills">${verifyPill(r)}${sourcePill(r)}</div>
-              <div class="queue-actions">
-                <button type="button" class="btn btn-small" data-action="reopen" data-id="${esc(r.id)}">Reopen</button>
-                <button type="button" class="btn btn-small" data-action="history" data-id="${esc(r.id)}">View log</button>
-              </div>
-            </div>`;
-        }).join('') : '<p class="empty-inline">No resolved reports match.</p>');
+          return {
+            color: t.color,
+            id: r.id,
+            title: r.title,
+            typeLabel: t.label,
+            when: r.resolvedAt ? 'Resolved ' + fmtDate.format(r.resolvedAt) : 'Posted ' + fmtDate.format(r.createdAt),
+            pills: pillsHTML(r)
+          };
+        })
+      });
       return;
     }
 
@@ -2289,19 +2440,17 @@
       .filter((e) => inHistRange(e.createdAt))
       .filter((e) => !needle || `${e.title} ${e.actor} ${logText(e)}`.toLowerCase().includes(needle));
 
-    body.innerHTML = `
-      <div class="result-meta" style="margin:0 0 6px">
-        <span>${entries.length} log entr${entries.length === 1 ? 'y' : 'ies'}</span>
-        <button type="button" class="link-btn" data-action="export-log">Download log (CSV)</button>
-      </div>` +
-      (entries.length ? entries.map((e) => `
-        <div class="log-row">
-          <button type="button" class="queue-main" data-action="open" data-id="${esc(e.reportId)}">
-            <strong>${esc(e.title || e.reportId)}</strong>
-            <span>${esc(logText(e))}</span>
-          </button>
-          <span class="log-when">${fmtDate.format(e.createdAt)}<br>${esc(e.actor || '')}</span>
-        </div>`).join('') : '<p class="empty-inline">No log entries match.</p>');
+    body.innerHTML = Tpl.render('history_log', {
+      count: entries.length,
+      plural: entries.length === 1 ? 'y' : 'ies',
+      rows: entries.map((e) => ({
+        reportId: e.reportId,
+        title: e.title || e.reportId,
+        text: logText(e),
+        when: fmtDate.format(e.createdAt),
+        actor: e.actor || ''
+      }))
+    });
   }
 
   function exportLogCSV() {
@@ -2354,7 +2503,7 @@
       draggable: true,
       keyboard: false,
       title,
-      icon: L.divIcon({ className: 'geo-handle', html: '<span></span>', iconSize: [16, 16], iconAnchor: [8, 8] })
+      icon: L.divIcon({ className: 'geo-handle', html: Tpl.render('geo_handle'), iconSize: [16, 16], iconAnchor: [8, 8] })
     }).addTo(geoLayer);
   }
 
@@ -2368,7 +2517,7 @@
       pts: init.points ? init.points.map((p) => [p[0], p[1]]) : [],
       done
     };
-    $('#map').classList.add('is-placing');
+    qs('#map').classList.add('is-placing');
     map.closePopup();
     showGeoBanner();
     redrawGeo();
@@ -2381,7 +2530,7 @@
   function stopGeoDraw() {
     state.drawingGeo = false;
     edit = null;
-    $('#map').classList.remove('is-placing');
+    qs('#map').classList.remove('is-placing');
     geoLayer.clearLayers();
     if (geoBanner) geoBanner.hidden = true;
   }
@@ -2451,22 +2600,16 @@
       geoBanner = document.createElement('div');
       geoBanner.className = 'placing-banner';
       geoBanner.setAttribute('role', 'status');
-      $('.mapwrap').appendChild(geoBanner);
+      qs('.mapwrap').appendChild(geoBanner);
       geoBanner.addEventListener('click', onGeoBannerClick);
     }
     const title = { circle: 'Adjust the circle', rectangle: 'Adjust the rectangle', polygon: 'Draw the affected area' }[edit.kind];
-    geoBanner.innerHTML = `
-      <strong>${title}</strong>
-      <span id="geoHint"></span>
-      ${edit.kind === 'polygon' ? '<button type="button" class="btn btn-small" data-geo="undo">Undo point</button>' : ''}
-      <button type="button" class="btn btn-small" data-geo="reset">Reset</button>
-      <button type="button" class="btn btn-small btn-primary" data-geo="done" id="geoDone">Use this area</button>
-      <button type="button" class="btn btn-small btn-quiet" data-geo="cancel">Cancel</button>`;
+geoBanner.innerHTML = Tpl.render('geo_banner', { title: title, polygon: edit.kind === 'polygon' });
     geoBanner.hidden = false;
   }
 
   function updateGeoBanner() {
-    const hint = $('#geoHint');
+    const hint = qs('#geoHint');
     if (!hint || !edit) return;
     let ok = true, text = '';
     if (edit.kind === 'circle') {
@@ -2484,7 +2627,7 @@
       ok = n >= 3 && !bad;
     }
     hint.textContent = text;
-    const done = $('#geoDone');
+    const done = qs('#geoDone');
     if (done) done.disabled = !ok;
   }
 
@@ -2495,7 +2638,7 @@
     if (act === 'undo') { edit.pts.pop(); return redrawGeo(); }
     if (act === 'reset') {
       const d = state.draft;
-      const r = Number($('#rRadius').value) || 1000;
+      const r = Number(qs('#rRadius').value) || 1000;
       if (edit.kind === 'circle') edit.radius = r;
       else if (edit.kind === 'rectangle') edit.bounds = defaultGeo('rectangle', d.lat, d.lng, r).bounds;
       else edit.pts = defaultGeo('polygon', d.lat, d.lng, r).points;
@@ -2508,7 +2651,7 @@
       return;
     }
     if (act === 'done') {
-      const done = $('#geoDone');
+      const done = qs('#geoDone');
       if (done && done.disabled) return;
       let result;
       if (edit.kind === 'circle') result = { radius: edit.radius };
@@ -2533,30 +2676,30 @@
 
   function captureForm() {
     return {
-      type: $('#rType').value, title: $('#rTitleInput').value,
-      desc: $('#rDesc').value, status: $('#rStatus').value,
-      official: $('#rOfficial').checked, starts: $('#rStarts').value, ends: $('#rEnds').value,
-      radius: $('#rRadius') ? $('#rRadius').value : '',
-      range: $('#rRange') ? $('#rRange').value : '',
-      shape: $('#rShape') ? $('#rShape').value : 'circle',
-      removePhoto: $('#rPhotoRemove').checked
+      type: qs('#rType').value, title: qs('#rTitleInput').value,
+      desc: qs('#rDesc').value, status: qs('#rStatus').value,
+      official: qs('#rOfficial').checked, starts: qs('#rStarts').value, ends: qs('#rEnds').value,
+      radius: qs('#rRadius') ? qs('#rRadius').value : '',
+      range: qs('#rRange') ? qs('#rRange').value : '',
+      shape: qs('#rShape') ? qs('#rShape').value : 'circle',
+      removePhoto: qs('#rPhotoRemove').checked
     };
   }
 
   function restoreForm(f) {
-    $('#rType').value = f.type;
-    $('#rTitleInput').value = f.title;
-    $('#rDesc').value = f.desc;
-    $('#rStatus').value = f.status;
-    $('#rOfficial').checked = f.official;
-    $('#rStarts').value = f.starts;
-    $('#rEnds').value = f.ends;
-    if ($('#rShape')) {
-      $('#rRadius').value = f.radius;
+    qs('#rType').value = f.type;
+    qs('#rTitleInput').value = f.title;
+    qs('#rDesc').value = f.desc;
+    qs('#rStatus').value = f.status;
+    qs('#rOfficial').checked = f.official;
+    qs('#rStarts').value = f.starts;
+    qs('#rEnds').value = f.ends;
+    if (qs('#rShape')) {
+      qs('#rRadius').value = f.radius;
       fillRangeSelect(f.type, f.range);
-      $('#rShape').value = f.shape;
+      qs('#rShape').value = f.shape;
     }
-    $('#rPhotoRemove').checked = f.removePhoto;
+    qs('#rPhotoRemove').checked = f.removePhoto;
     toggleScheduleRow();
   }
 
@@ -2573,7 +2716,7 @@
       : { points: state.draftGeo.points };
     const geoBefore = state.draftGeo;
 
-    $('#reportDialog').close();
+    qs('#reportDialog').close();
     startShapeEdit(kind, init, (result) => {
       state.draftGeo = geoBefore;
       if (result && result.geo) state.draftGeo = result.geo;
@@ -2585,46 +2728,34 @@
   }
 
   function updateGeoUi() {
-    if (!$('#rShape')) return;
-    const kind = $('#rShape').value;
-    $('#circleRow').hidden = kind !== 'circle';
+    if (!qs('#rShape')) return;
+    const kind = qs('#rShape').value;
+    qs('#circleRow').hidden = kind !== 'circle';
 
     const g = state.draftGeo;
-    const radius = Number($('#rRadius').value) || 1000;
+    const radius = Number(qs('#rRadius').value) || 1000;
     let summary = '';
     if (kind === 'circle') summary = `Circle, ${radius} m around the pin.`;
     else if (g) summary = coverageLabel({ geofence: g }) + '.';
-    $('#geoSummary').textContent = summary;
+    qs('#geoSummary').textContent = summary;
 
     let text = '';
     const d = state.draft;
     if (isAdmin() && d) {
       const n = affectedResidents({ lat: d.lat, lng: d.lng, radius, geofence: kind === 'circle' ? null : g }).length;
-      const when = $('#rOfficial').checked ? 'will be notified' : 'will be notified once the report is verified';
+      const when = qs('#rOfficial').checked ? 'will be notified' : 'will be notified once the report is verified';
       text = `${n} resident${n === 1 ? '' : 's'} with a home marker inside this area ${when}.`;
     }
-    $('#geoAffected').textContent = text;
+    qs('#geoAffected').textContent = text;
   }
 
   function renderLegend() {
-    const row = (key, label) => `<div class="legend-item">${PipeMarkers.legend(key)}${esc(label)}</div>`;
-    $('#legend').innerHTML = `
-      <div class="legend-title">Markers</div>
-      ${Object.entries(TYPES).map(([k, t]) => row(k, t.label)).join('')}
-      ${row('unverified', 'Not yet verified')}
-      ${homeArea() ? row('home', 'Your home') : ''}
-      <div class="legend-sep"></div>
-      <div class="legend-item"><span class="legend-swatch dashed"></span>Report area (verified only)</div>
-      <div class="legend-sep"></div>
-      <div class="legend-title">Grouped reports</div>
-      <div class="freq-bar"><span class="f1"></span><span class="f2"></span><span class="f3"></span><span class="f4"></span><span class="f5"></span></div>
-      <div class="freq-ends"><span>Fewer</span><span>More</span></div>
-      <div class="legend-item" style="margin-top:6px"><span class="cluster-key"></span>Grouped, not yet verified</div>
-      ${state.hotOn ? `
-      <div class="legend-sep"></div>
-      <div class="legend-title">Frequently affected</div>
-      <div class="heat-bar"></div>
-      <div class="freq-ends"><span>2 overlap</span><span>Many</span></div>` : ''}`;
+    const rows = [
+      ...Object.entries(TYPES).map(([k, t]) => ({ pin: PipeMarkers.legend(k), label: t.label })),
+      { pin: PipeMarkers.legend('unverified'), label: 'Not yet verified' }
+    ];
+    if (homeArea()) rows.push({ pin: PipeMarkers.legend('home'), label: 'Your home' });
+    qs('#legend').innerHTML = Tpl.render('legend', { rows: rows, hotOn: state.hotOn });
   }
 
   async function init() {
@@ -2634,6 +2765,7 @@
       await loadReports();
       if (isResident()) {
         myHome = await fetchMyHome();
+        api(API.profile, { action: 'get' }).then((r) => applyProfile(r.profile)).catch(() => { });
         await loadNotifications().catch(() => { db.notifications = []; });
         db.notifications.forEach((n) => seenNoteIds.add(n.id));
       } else {
@@ -2643,88 +2775,98 @@
       Swal.fire({ icon: 'error', title: 'Could not load data', text: errMsg(err), confirmButtonText: 'OK' });
     }
 
-    fillSelect($('#fType'), [['', 'All types'], ...Object.entries(TYPES).map(([k, v]) => [k, v.label])], '');
-    fillSelect($('#fStatus'), [['', 'All statuses'], ...Object.entries(STATUSES).filter(([k]) => !(isAdmin() && k === 'resolved'))], '');
+    fillSelect(qs('#fType'), [['', 'All types'], ...Object.entries(TYPES).map(([k, v]) => [k, v.label])], '');
+    fillSelect(qs('#fStatus'), [['', 'All statuses'], ...Object.entries(STATUSES).filter(([k]) => !(isAdmin() && k === 'resolved'))], '');
 
-    $('#fSearch').addEventListener('input', (e) => { state.filters.q = e.target.value; refresh({ keepView: true }); });
-    $('#fType').addEventListener('change', (e) => { state.filters.type = e.target.value; refresh({ keepView: true }); });
-    $('#fStatus').addEventListener('change', (e) => { state.filters.status = e.target.value; refresh({ keepView: true }); });
-    $('#fVerify').addEventListener('change', (e) => { state.filters.verify = e.target.value; refresh({ keepView: true }); });
+    qs('#fSearch').addEventListener('input', (e) => { state.filters.q = e.target.value; refresh({ keepView: true }); });
+    qs('#fType').addEventListener('change', (e) => { state.filters.type = e.target.value; refresh({ keepView: true }); });
+    qs('#fStatus').addEventListener('change', (e) => { state.filters.status = e.target.value; refresh({ keepView: true }); });
+    qs('#fVerify').addEventListener('change', (e) => { state.filters.verify = e.target.value; refresh({ keepView: true }); });
 
     [['#fScope', 'scope'], ['#fFrom', 'from'], ['#fTo', 'to']].forEach(([sel, key]) => {
-      const el = $(sel);
+      const el = qs(sel);
       if (el) el.addEventListener('change', (e) => { state.filters[key] = e.target.value; refresh({ keepView: true }); });
     });
-    $('#clearFilters').addEventListener('click', () => {
+    qs('#clearFilters').addEventListener('click', () => {
       state.filters = emptyFilters();
       syncFilterControls();
       refresh({ keepView: true });
     });
 
-    $('#reportList').addEventListener('click', (e) => {
+    qs('#reportList').addEventListener('click', (e) => {
       const card = e.target.closest('[data-id]');
       if (card) selectReport(card.dataset.id);
     });
-    $('#viewDetail').addEventListener('click', onDetailClick);
-    $('#viewDetail').addEventListener('change', onDetailChange);
-    $('#viewInsights').addEventListener('click', onInsightsClick);
-    $('#viewDashboard').addEventListener('click', onDashboardClick);
+    qs('#viewDetail').addEventListener('click', onDetailClick);
+    qs('#viewDetail').addEventListener('change', onDetailChange);
+    qs('#viewInsights').addEventListener('click', onInsightsClick);
+    qs('#viewDashboard').addEventListener('click', onDashboardClick);
 
-    const vh = $('#viewHistory');
+    const vp = qs('#viewProfile');
+    if (vp) {
+      vp.addEventListener('click', onProfileClick);
+      vp.addEventListener('change', onProfileChange);
+      vp.addEventListener('submit', onProfileSubmit);
+    }
+    const tp = qs('#tabProfile');
+    if (tp) tp.addEventListener('click', () => showView('profile'));
+
+    const vh = qs('#viewHistory');
     if (vh) {
       vh.addEventListener('click', onHistoryClick);
       vh.addEventListener('input', onHistoryInput);
       vh.addEventListener('change', onHistoryInput);
     }
-    const th = $('#tabHistory');
+    const th = qs('#tabHistory');
     if (th) th.addEventListener('click', () => showView('history'));
 
-    if ($('#rShape')) {
-      $('#rType').addEventListener('change', onTypeChange);
-      $('#rRange').addEventListener('change', onRangeChange);
-      $('#rShape').addEventListener('change', onShapeChange);
-      $('#rRadius').addEventListener('input', onRadiusInput);
-      $('#btnDrawArea').addEventListener('click', beginDrawArea);
+    if (qs('#rShape')) {
+      qs('#rType').addEventListener('change', onTypeChange);
+      qs('#rRange').addEventListener('change', onRangeChange);
+      qs('#rShape').addEventListener('change', onShapeChange);
+      qs('#rRadius').addEventListener('input', onRadiusInput);
+      qs('#btnDrawArea').addEventListener('click', beginDrawArea);
     }
-    $('#rPhoto').addEventListener('change', onPhotoPicked);
-    $('#photoClear').addEventListener('click', clearPhoto);
+    qs('#rPhoto').addEventListener('change', onPhotoPicked);
+    qs('#photoClear').addEventListener('click', clearPhoto);
 
-    $('#tabReports').addEventListener('click', () => showView('reports'));
-    $('#tabInsights').addEventListener('click', () => showView('insights'));
-    $('#tabDashboard').addEventListener('click', () => showView('dashboard'));
+    qs('#tabReports').addEventListener('click', () => showView('reports'));
+    qs('#tabInsights').addEventListener('click', () => showView('insights'));
+    qs('#tabDashboard').addEventListener('click', () => showView('dashboard'));
 
-    $('#btnNewReport').addEventListener('click', () => beginNewReport());
-    $('#btnAnnounce').addEventListener('click', () => { if (isAdmin()) beginNewReport({ official: true }); });
+    qs('#btnNewReport').addEventListener('click', () => beginNewReport());
+    qs('#btnAnnounce').addEventListener('click', () => { if (isAdmin()) beginNewReport({ official: true }); });
 
-    $('#authArea').addEventListener('click', (e) => {
+    qs('#authArea').addEventListener('click', (e) => {
       const b = e.target.closest('[data-auth]');
       if (!b) return;
       if (b.dataset.auth === 'logout') logout();
+      if (b.dataset.auth === 'profile') showView('profile');
     });
 
-    $('#reportForm').addEventListener('submit', onReportSubmit);
-    $('#changePin').addEventListener('click', onChangePin);
-    $('#rOfficial').addEventListener('change', toggleScheduleRow);
-    $('#reportDialog').addEventListener('close', () => {
+    qs('#reportForm').addEventListener('submit', onReportSubmit);
+    qs('#changePin').addEventListener('click', onChangePin);
+    qs('#rOfficial').addEventListener('change', toggleScheduleRow);
+    qs('#reportDialog').addEventListener('close', () => {
       if (!state.placing && !state.drawingGeo) clearDraftMarker();
     });
 
     document.addEventListener('click', (e) => {
       const c = e.target.closest('[data-close]');
-      if (c) $('#' + c.dataset.close).close();
+      if (c) qs('#' + c.dataset.close).close();
     });
 
     document.querySelectorAll('dialog').forEach((d) => {
       d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
     });
 
-    $('#placeCancel').addEventListener('click', () => { stopPlacing(); clearDraftMarker(); toast('Pin placement cancelled.', 'info'); });
-    $('#placeUseMyLocation').addEventListener('click', useMyLocationForPin);
+    qs('#placeCancel').addEventListener('click', () => { stopPlacing(); clearDraftMarker(); toast('Pin placement cancelled.', 'info'); });
+    qs('#placeUseMyLocation').addEventListener('click', useMyLocationForPin);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && state.placing) { stopPlacing(); clearDraftMarker(); }
     });
 
-    $('#toggleHotspots').addEventListener('click', async (e) => {
+    qs('#toggleHotspots').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
       const on = btn.getAttribute('aria-pressed') !== 'true';
       state.hotOn = on;
@@ -2741,8 +2883,8 @@
       renderLegend();
     });
 
-    $('#btnLocate').addEventListener('click', () => map.locate({ setView: true, maxZoom: 16 }));
-    if ($('#btnPosts')) $('#btnPosts').addEventListener('click', showAllPosts);
+    qs('#btnLocate').addEventListener('click', () => map.locate({ setView: true, maxZoom: 16 }));
+    if (qs('#btnPosts')) qs('#btnPosts').addEventListener('click', showAllPosts);
     map.on('locationfound', (e) => {
       if (meMarker) map.removeLayer(meMarker);
       meMarker = L.circleMarker(e.latlng, {
@@ -2769,10 +2911,10 @@
       welcome();
     }
 
-    setInterval(() => { if (!$('#viewReports').hidden) renderList(); }, 60000);
+    setInterval(() => { if (!qs('#viewReports').hidden) renderList(); }, 60000);
 
     async function pollData() {
-      if (state.settingHome || state.confirmingHome || state.draggingHome || state.placing || $('#reportDialog').open) return;
+      if (state.settingHome || state.confirmingHome || state.draggingHome || state.placing || qs('#reportDialog').open) return;
       try {
         const before = JSON.stringify(db.reports);
         await loadReports();
@@ -2796,4 +2938,8 @@
   }
 
   init();
-})();
+}
+
+jQuery(document).ready(function () {
+  Tpl.load(VIEW_FILES, startApp, templateFailed);
+});

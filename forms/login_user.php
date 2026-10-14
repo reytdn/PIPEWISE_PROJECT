@@ -1,6 +1,5 @@
 <?php
 
-    header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
     session_start();
 
@@ -10,13 +9,6 @@
     $db   = "pipesense";
 
     $debug = true;
-
-    function respond($payload, $httpCode = 200)
-    {
-        http_response_code($httpCode);
-        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-        exit;
-    }
 
     function columnLength($conn, $table, $column)
     {
@@ -37,17 +29,19 @@
     }
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        respond(["status" => "error", "message" => "Invalid request."], 405);
+        echo json_encode(["status" => "error", "message" => "Invalid request."]);
+        exit;
     }
 
     $identifier = isset($_POST['username']) ? trim($_POST['username']) : '';
     $password   = isset($_POST['password']) ? $_POST['password'] : '';
 
     if ($identifier === '' || $password === '') {
-        respond([
+        echo json_encode([
             "status"  => "error",
             "message" => "Enter your username (or email) and your password."
         ]);
+        exit;
     }
 
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
@@ -71,22 +65,24 @@
         if (!$row) {
             password_verify($password, password_hash("dummy", PASSWORD_DEFAULT));
             usleep(400000);
-            respond([
+            echo json_encode([
                 "status"  => "error",
                 "code"    => "bad_login",
                 "message" => "Incorrect username or password."
             ]);
+            exit;
         }
 
         if (!password_verify($password, $row['password'])) {
 
             usleep(400000);
 
-            respond([
+            echo json_encode([
                 "status"  => "error",
                 "code"    => "bad_login",
                 "message" => "Incorrect username or password."
             ]);
+            exit;
         }
 
         if (password_needs_rehash($row['password'], PASSWORD_DEFAULT)
@@ -112,7 +108,7 @@
             $_SESSION['pipesense_tokens'] = array_slice($_SESSION['pipesense_tokens'], -20, null, true);
         }
 
-        respond([
+        echo json_encode([
             "status"  => "success",
             "message" => "Login successful.",
             "user"    => [
@@ -125,6 +121,7 @@
                 "token"    => $token
             ]
         ]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
 
@@ -137,7 +134,8 @@
         if ($debug) {
             $reply["detail"] = $e->getMessage();
         }
-        respond($reply, 500);
+        echo json_encode($reply);
+        exit;
     }
 
 ?>

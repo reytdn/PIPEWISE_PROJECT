@@ -1,0 +1,32 @@
+<div class="insights">
+  <h2>Water service summary</h2>
+  <p class="lead">Based on all {{total}} records in the system.</p>
+
+  {{{stats}}}
+
+  <div class="block">
+    <h3>Reports by type</h3>
+    {{#each byType}}
+    <div class="bar-row">
+      <span>{{label}}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:{{width}}%;--c:{{color}}"></div></div>
+      <span class="bar-num">{{n}}</span>
+    </div>
+    {{/each}}
+  </div>
+
+  <div class="block">
+    <h3>Reports by status</h3>
+    {{#each byStatus}}
+    <div class="bar-row">
+      <span>{{label}}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:{{width}}%;--c:{{color}}"></div></div>
+      <span class="bar-num">{{n}}</span>
+    </div>
+    {{/each}}
+  </div>
+
+  <div class="insight-actions">
+    <button type="button" class="btn" data-action="export">Download records (CSV)</button>
+  </div>
+</div>

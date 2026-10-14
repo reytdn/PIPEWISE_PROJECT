@@ -2,20 +2,46 @@
 
     require __DIR__ . '/common.php';
 
+    $host = "localhost";
+
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+    try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
+    }
+
+    prepareTables($conn);
+
+    $action    = isset($_POST['action']) ? trim((string) $_POST['action']) : '';
+    $limit     = isset($_POST['limit']) ? trim((string) $_POST['limit']) : '';
+    $report_id = isset($_POST['report_id']) ? trim((string) $_POST['report_id']) : '';
+
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        fail("Invalid request.", 405);
+        echo json_encode(["status" => "error", "message" => "Invalid request."]);
+        exit;
     }
 
     try {
+        requireAdmin($conn);
 
-        $conn = db();
-        requireAdmin();
-
-        if (input('action') !== 'list') {
-            fail("Unknown action.");
+        if ($action !== 'list') {
+            echo json_encode(["status" => "error", "message" => "Unknown action."]);
+            exit;
         }
 
-        $limit = (int) input('limit', '200');
+        $limit = (int) ($limit !== '' ? $limit : '200');
         if ($limit < 1)   $limit = 200;
         if ($limit > 500) $limit = 500;
 
@@ -23,8 +49,8 @@
                        UNIX_TIMESTAMP(created_at) * 1000 AS created_ms
                 FROM report_log";
 
-        if (input('report_id') !== '') {
-            $rid  = reportId(input('report_id'));
+        if ($report_id !== '') {
+            $rid  = reportId($report_id);
             $stmt = $conn->prepare($sql . " WHERE report_id = ? ORDER BY created_at DESC, id DESC LIMIT ?");
             $stmt->bind_param("ii", $rid, $limit);
         } else {
@@ -49,7 +75,8 @@
         }
         $stmt->close();
 
-        respond(["status" => "success", "log" => $log]);
+        echo json_encode(["status" => "success", "log" => $log]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "report_log.php");

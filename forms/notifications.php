@@ -2,21 +2,45 @@
 
     require __DIR__ . '/common.php';
 
+    $host = "localhost";
+
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+    try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
+    }
+
+    prepareTables($conn);
+
+    $action = isset($_POST['action']) ? trim((string) $_POST['action']) : '';
+    $id     = isset($_POST['id']) ? trim((string) $_POST['id']) : '';
+
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        fail("Invalid request.", 405);
+        echo json_encode(["status" => "error", "message" => "Invalid request."]);
+        exit;
     }
 
     try {
-
-        $conn = db();
-        $me   = actor();
+        $me   = actor($conn);
 
         if ($me['role'] !== 'resident') {
-            fail("Notifications are for residents.", 403);
+            echo json_encode(["status" => "error", "message" => "Notifications are for residents."]);
+            exit;
         }
 
         $userId = (int) $me['id'];
-        $action = input('action');
 
         if ($action === 'list') {
 
@@ -45,19 +69,21 @@
             }
             $stmt->close();
 
-            respond(["status" => "success", "notifications" => $notes]);
+            echo json_encode(["status" => "success", "notifications" => $notes]);
+            exit;
         }
 
         if ($action === 'read') {
 
-            $id = (int) input('id');
+            $id = (int) $id;
 
             $stmt = $conn->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?");
             $stmt->bind_param("ii", $id, $userId);
             $stmt->execute();
             $stmt->close();
 
-            respond(["status" => "success"]);
+            echo json_encode(["status" => "success"]);
+            exit;
         }
 
         if ($action === 'read_all') {
@@ -67,10 +93,12 @@
             $stmt->execute();
             $stmt->close();
 
-            respond(["status" => "success"]);
+            echo json_encode(["status" => "success"]);
+            exit;
         }
 
-        fail("Unknown action.");
+        echo json_encode(["status" => "error", "message" => "Unknown action."]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "notifications.php");

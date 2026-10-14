@@ -1,0 +1,5 @@
+{{#each rows}}<li role="option" data-i="{{i}}" class="{{cls}}">
+  <strong>{{name}}</strong>
+  <span>@{{username}} &middot; {{address}}</span>
+  {{#if hasHome}}{{else}}<em>No home set yet</em>{{/if}}
+</li>{{/each}}

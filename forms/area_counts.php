@@ -2,23 +2,39 @@
 
     require __DIR__ . '/common.php';
 
-    // Frequently affected areas for the public overview.
-    // Counts official announcements and VERIFIED reports per barangay for one period.
-    // Resolved reports are counted too: they stay stored for the history.
-    // ?from=YYYY-MM-DD (first day of the period)  &to=YYYY-MM-DD (first day AFTER the period)
+    $host = "localhost";
+
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+    try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
+    }
+
+    prepareTables($conn);
+
+    $from = isset($_GET['from']) ? trim((string) $_GET['from']) : '';
+    $to   = isset($_GET['to']) ? trim((string) $_GET['to']) : '';
 
     try {
 
-        $conn = db();
-        $from = input('from');
-        $to   = input('to');
-
         $ok = '/^\d{4}-\d{2}-\d{2}$/';
         if (!preg_match($ok, $from) || !preg_match($ok, $to)) {
-            fail("Pick a valid period.");
+            echo json_encode(["status" => "error", "message" => "Pick a valid period."]);
+            exit;
         }
 
-        // reports without a start or end time use the day they were posted
         $stmt = $conn->prepare(
             "SELECT area, COUNT(*) AS report_count
              FROM reports
@@ -43,7 +59,8 @@
         }
         $stmt->close();
 
-        respond(["status" => "success", "areas" => $areas]);
+        echo json_encode(["status" => "success", "areas" => $areas]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "area_counts.php");

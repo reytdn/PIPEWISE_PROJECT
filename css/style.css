@@ -658,7 +658,6 @@ body.needs-home #btnNewReport {
 .map-search input {
   box-shadow: 0 1px 6px rgba(16, 48, 59, 0.22);
 }
-/* same height as the chip buttons so the whole row lines up */
 .map-search .search-field input { height: 36px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
 .map-tools .chip-btn { height: 36px; display: inline-flex; align-items: center; }
 
@@ -818,8 +817,6 @@ input[type="number"] {
   cursor: grab;
 }
 
-
-
 .popup-photo { display: block; width: 100%; max-height: 150px; object-fit: cover; border-radius: 6px; margin-bottom: 8px; }
 .popup-desc { margin: 8px 0 0; max-width: 240px; }
 .detail-photo-link { display: block; margin: 0 0 12px; }
@@ -841,8 +838,6 @@ input[type="number"] {
 .view-toggle:hover { background: #f3f7f8; }
 .view-toggle.is-on { background: var(--ink); color: #fff; }
 
-/* ---------- Search field with magnifier ---------- */
-
 .search-field { position: relative; }
 .search-field .search-ico {
   position: absolute;
@@ -853,8 +848,6 @@ input[type="number"] {
   pointer-events: none;
 }
 .map-search .search-field input { padding-left: 38px; }
-
-/* ---------- Grouped markers (cluster colour = how many reports it holds) ---------- */
 
 .pin-wrap, .cluster-wrap { background: none; border: 0; }
 
@@ -906,7 +899,46 @@ input[type="number"] {
   border: 1px solid rgba(201, 68, 59, 0.35);
 }
 
-/* keep the chip row from running under the resident search bar */
 @media (min-width: 761px) {
   .mapwrap:has(.map-search) .map-tools { max-width: calc(100% - 24px - 342px); }
 }
+
+.avatar {
+  display: block;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(16, 48, 59, 0.3);
+}
+.avatar-fallback {
+  display: grid;
+  place-items: center;
+  background: var(--water);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.chip-avatar-btn {
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  line-height: 0;
+}
+.chip-avatar-btn:hover .avatar { box-shadow: 0 0 0 3px rgba(92, 200, 215, 0.6); }
+
+.profile-photo {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.profile-photo .avatar { border-color: var(--line); }
+.profile-photo-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.profile-photo-actions small { flex-basis: 100%; color: var(--muted); }
+.profile .form { gap: 12px; }
+.profile .field input:disabled { background: var(--paper); color: var(--muted); }
+.profile .block { padding-top: 6px; }
+#viewProfile .tab { white-space: nowrap; }

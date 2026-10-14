@@ -1,0 +1,11 @@
+<li>
+  <button type="button" class="report-card{{#if selected}} is-selected{{/if}}"
+          data-id="{{id}}" style="--c:{{color}}">
+    <h3>{{title}}</h3>
+    <div class="where">{{typeLabel}} &middot; {{date}}</div>
+    <div class="pills">
+      {{{pills}}}
+      <span class="time-ago">{{ago}}</span>
+    </div>
+  </button>
+</li>

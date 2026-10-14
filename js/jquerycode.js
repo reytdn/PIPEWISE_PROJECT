@@ -12,7 +12,6 @@ $(document).ready(function(){
     });
 
     $("#showHeaders").click(function(){
-        // $("h1, h2, h3").show();
         $(":header").show();
         $("#hideHeaders").prop("disabled", false);
         $(this).prop("disabled", true);
@@ -47,7 +46,6 @@ $(document).ready(function(){
         $("#userinput").val('');
     });
 
-    // Add two numbers
     $("#addNumbers").click(function(){
         let num1 = parseFloat($("#num1").val()) || 0;
         let num2 = parseFloat($("#num2").val()) || 0;
@@ -56,7 +54,6 @@ $(document).ready(function(){
         $("#sumResult").val(sum); // Place result in input box
     });  
 
-    // IF example
     $("#checkIf").click(function(){
         let num = parseFloat($("#checkNumber").val()) || 0;
         if(num > 0){
@@ -64,7 +61,6 @@ $(document).ready(function(){
         }
     });
 
-    // IF ELSE example
     $("#checkIfElse").click(function(){
         let num = parseFloat($("#checkNumber").val()) || 0;
         if(num % 2 === 0){
@@ -74,7 +70,6 @@ $(document).ready(function(){
         }
     });
 
-    // IF ELSE IF example
     $("#checkIfElseIf").click(function(){
         let num = parseFloat($("#checkNumber").val()) || 0;
         if(num > 0){
@@ -86,7 +81,6 @@ $(document).ready(function(){
         }
     });    
     
-    // For Loop Simulation
     $("#runForLoop").click(function() {
         let result = "";
         for (let i = 1; i <= 5; i++) {
@@ -95,7 +89,6 @@ $(document).ready(function(){
         $("#forLoopResult").val(result.trim());
     });
 
-    // While Loop Simulation
     $("#runWhileLoop").click(function() {
         let result = "";
         let i = 5;
@@ -106,13 +99,11 @@ $(document).ready(function(){
         $("#whileLoopResult").val(result.trim());
     });   
     
-    // Show Array
     $("#showArray").click(function(){
         let names = $("#namesInput").val().split(",");  // split string into array
         $("#arrayResult").val(names.join(" | "));       // display array with separators
     });
 
-    // Add Name to Array
     $("#addName").click(function(){
         let names = $("#namesInput").val().split(",");
         let newName = prompt("Enter a new name:");
@@ -190,13 +181,10 @@ $(document).ready(function(){
         }
     });
 
-    // Set initial state
     $("#currentPage").val(currentPage);
     $("#firstPage").prop("disabled", true);
     $("#prevPage").prop("disabled", true);
 
-    // ---------------------------------------------
-        // Start on Page 1
     $("#pageSelector").val("1");
     $("#firstBtn, #prevBtn").prop("disabled", true);
     $("#nextBtn, #lastBtn").prop("disabled", false);

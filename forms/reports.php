@@ -2,8 +2,47 @@
 
     require __DIR__ . '/common.php';
 
+    $host = "localhost";
+
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+    try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
+    }
+
+    prepareTables($conn);
+
+    $action      = isset($_POST['action']) ? trim((string) $_POST['action']) : '';
+    $type        = isset($_POST['type']) ? trim((string) $_POST['type']) : '';
+    $title       = isset($_POST['title']) ? trim((string) $_POST['title']) : '';
+    $desc        = isset($_POST['desc']) ? trim((string) $_POST['desc']) : '';
+    $lat         = isset($_POST['lat']) ? trim((string) $_POST['lat']) : '';
+    $lng         = isset($_POST['lng']) ? trim((string) $_POST['lng']) : '';
+    $radius      = isset($_POST['radius']) ? trim((string) $_POST['radius']) : '';
+    $geofence    = isset($_POST['geofence']) ? trim((string) $_POST['geofence']) : '';
+    $status      = isset($_POST['status']) ? trim((string) $_POST['status']) : '';
+    $official    = isset($_POST['official']) ? trim((string) $_POST['official']) : '';
+    $startsAt    = isset($_POST['startsAt']) ? trim((string) $_POST['startsAt']) : '';
+    $endsAt      = isset($_POST['endsAt']) ? trim((string) $_POST['endsAt']) : '';
+    $id          = isset($_POST['id']) ? trim((string) $_POST['id']) : '';
+    $removePhoto = isset($_POST['removePhoto']) ? trim((string) $_POST['removePhoto']) : '';
+    $verified    = isset($_POST['verified']) ? trim((string) $_POST['verified']) : '';
+
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        fail("Invalid request.", 405);
+        echo json_encode(["status" => "error", "message" => "Invalid request."]);
+        exit;
     }
 
     const REPORT_SELECT =
@@ -102,30 +141,36 @@
     }
 
     try {
-
-        $conn   = db();
-        $me     = actor();
+        $me     = actor($conn);
         $admin  = $me['role'] === 'admin';
-        $action = input('action');
 
         if ($action === 'list') {
 
             $reports = [];
-            $result  = $conn->query(REPORT_SELECT . " ORDER BY created_at DESC, id DESC");
+
+            if ($admin) {
+                $result = $conn->query(REPORT_SELECT . " ORDER BY created_at DESC, id DESC");
+            } else {
+                // Residents never receive other people's unverified reports:
+                // only official announcements, verified reports, and their own.
+                $stmt = $conn->prepare(
+                    REPORT_SELECT . " WHERE source = 'official' OR verified = 1 OR author_id = ?
+                     ORDER BY created_at DESC, id DESC"
+                );
+                $stmt->bind_param("s", $me['key']);
+                $stmt->execute();
+                $result = $stmt->get_result();
+            }
+
             while ($row = $result->fetch_assoc()) {
                 $reports[] = reportOut($row);
             }
 
-            respond(["status" => "success", "reports" => $reports]);
+            echo json_encode(["status" => "success", "reports" => $reports]);
+            exit;
         }
 
         if ($action === 'create') {
-
-            $type  = input('type');
-            $title = input('title');
-            $desc  = input('desc');
-            $lat   = input('lat');
-            $lng   = input('lng');
 
             $errors = [];
 
@@ -144,15 +189,15 @@
             $endsAt   = null;
 
             if ($admin) {
-                $radius   = parseRadius(input('radius'), $errors, $type);
-                $geofence = parseGeofence(input('geofence'), $errors);
-                $status = input('status', 'reported');
+                $radius   = parseRadius($radius, $errors, $type);
+                $geofence = parseGeofence($geofence, $errors);
+                $status = ($status !== '' ? $status : 'reported');
                 if (!in_array($status, REPORT_STATUSES, true)) $errors[] = "Choose a valid status.";
 
-                $official = input('official') === '1';
+                $official = $official === '1';
                 if ($official) {
-                    $startsAt = msToSeconds(input('startsAt'));
-                    $endsAt   = msToSeconds(input('endsAt'));
+                    $startsAt = msToSeconds($startsAt);
+                    $endsAt   = msToSeconds($endsAt);
                     if ($startsAt === false || $endsAt === false) {
                         $errors[] = "The schedule is not a valid date.";
                     } elseif ($startsAt !== null && $endsAt !== null && $endsAt < $startsAt) {
@@ -163,7 +208,8 @@
 
             if ($errors) {
                 if (is_string($photo)) deletePhotoFile($photo);
-                fail($errors[0], 400, ["errors" => $errors]);
+                echo json_encode(["status" => "error", "message" => $errors[0], "errors" => $errors]);
+                exit;
             }
 
             $photo      = is_string($photo) ? $photo : null;
@@ -192,98 +238,104 @@
             logReport($conn, $newId, $title, 'created', null, $official ? 'official, ' . $status : $status, $authorName, $authorKey);
             $stmt->close();
 
-            respond([
+            echo json_encode([
                 "status"  => "success",
                 "message" => $official ? "Announcement posted." . notifySummary($notified) : "Report submitted. An admin can verify it.",
                 "notified" => $notified,
                 "report"  => reportOut(fetchReport($conn, $newId))
             ]);
+            exit;
         }
 
         if ($action === 'update') {
 
-            $id  = reportId(input('id'));
+            $id  = reportId($id);
             $row = fetchReport($conn, $id);
 
             if (!$row) {
-                fail("That report no longer exists.", 404);
+                echo json_encode(["status" => "error", "message" => "That report no longer exists."]);
+                exit;
             }
 
             $isOwner = $row['author_id'] === $me['key'];
             if (!$admin && !$isOwner) {
-                fail("You can only change your own reports.", 403);
+                echo json_encode(["status" => "error", "message" => "You can only change your own reports."]);
+                exit;
             }
 
             $set            = [];
             $errors         = [];
             $contentChanged = false;
 
-            if (hasInput('type')) {
-                $v = input('type');
+            if (isset($_POST['type'])) {
+                $v = $type;
                 if (!in_array($v, REPORT_TYPES, true)) { $errors[] = "Choose what is happening."; }
                 else { $set[] = ["type = ?", "s", $v]; $contentChanged = true; }
             }
 
-            if (hasInput('title')) {
-                $v = input('title');
+            if (isset($_POST['title'])) {
+                $v = $title;
                 if ($v === '')            { $errors[] = "Add a short title so others know what is happening."; }
                 elseif (textLen($v) > 90) { $errors[] = "The title is too long (90 characters at most)."; }
                 else { $set[] = ["title = ?", "s", $v]; $contentChanged = true; }
             }
 
-            if (hasInput('desc')) {
-                $v = input('desc');
+            if (isset($_POST['desc'])) {
+                $v = $desc;
                 if (textLen($v) > 500) { $errors[] = "The details are too long (500 characters at most)."; }
                 else { $set[] = ["description = ?", "s", $v]; $contentChanged = true; }
             }
 
-            if (hasInput('lat') || hasInput('lng')) {
-                if (!validPoint(input('lat'), input('lng'))) {
+            if (isset($_POST['lat']) || isset($_POST['lng'])) {
+                if (!validPoint($lat, $lng)) {
                     $errors[] = "The pinned location must be inside Bacolod City.";
                 } else {
-                    $set[] = ["lat = ?", "d", round((float) input('lat'), 6)];
-                    $set[] = ["lng = ?", "d", round((float) input('lng'), 6)];
+                    $set[] = ["lat = ?", "d", round((float) $lat, 6)];
+                    $set[] = ["lng = ?", "d", round((float) $lng, 6)];
                     $contentChanged = true;
                 }
             }
 
-            if (hasInput('status')) {
-                $v       = input('status');
+            if (isset($_POST['status'])) {
+                $v       = $status;
                 $allowed = $admin ? REPORT_STATUSES : ['reported', 'ongoing', 'resolved'];
                 if (!in_array($v, $allowed, true)) { $errors[] = "That status is not allowed."; }
                 else { $set[] = ["status = ?", "s", $v]; }
             }
 
-            $typeNow = hasInput('type') ? input('type') : $row['type'];
+            $typeNow = isset($_POST['type']) ? $type : $row['type'];
 
-            if ($admin && hasInput('radius')) {
-                $set[] = ["radius_m = ?", "i", parseRadius(input('radius'), $errors, $typeNow)];
+            if ($admin && isset($_POST['radius'])) {
+                $set[] = ["radius_m = ?", "i", parseRadius($radius, $errors, $typeNow)];
             }
 
-            if ($admin && hasInput('geofence')) {
-                $set[] = ["geofence = ?", "s", parseGeofence(input('geofence'), $errors)];
+            if ($admin && isset($_POST['geofence'])) {
+                $set[] = ["geofence = ?", "s", parseGeofence($geofence, $errors)];
             }
 
             $newPhoto = savePhotoUpload($errors);
             if (is_string($newPhoto)) {
                 $set[] = ["photo = ?", "s", $newPhoto];
                 $contentChanged = true;
-            } elseif ($newPhoto === null && input('removePhoto') === '1') {
+            } elseif ($newPhoto === null && $removePhoto === '1') {
                 $set[] = ["photo = ?", "s", null];
                 $contentChanged = true;
             }
 
-            $verifiedSent = hasInput('verified');
+            $verifiedSent = isset($_POST['verified']);
             if ($verifiedSent) {
-                if (!$admin) fail("Only the administrator can verify reports.", 403);
-                $set[] = ["verified = ?", "i", input('verified') === '1' ? 1 : 0];
+                if (!$admin){
+                    echo json_encode(["status" => "error", "message" => "Only the administrator can verify reports."]);
+                    exit;
+                }
+                $set[] = ["verified = ?", "i", $verified === '1' ? 1 : 0];
             }
 
-            if ($admin && hasInput('official')) {
+            if ($admin && isset($_POST['official'])) {
 
-                $official = input('official') === '1';
-                $startsAt = $official ? msToSeconds(input('startsAt')) : null;
-                $endsAt   = $official ? msToSeconds(input('endsAt'))   : null;
+                $official = $official === '1';
+                $startsAt = $official ? msToSeconds($startsAt) : null;
+                $endsAt   = $official ? msToSeconds($endsAt)   : null;
 
                 if ($startsAt === false || $endsAt === false) {
                     $errors[] = "The schedule is not a valid date.";
@@ -304,10 +356,12 @@
 
             if ($errors) {
                 if (isset($newPhoto) && is_string($newPhoto)) deletePhotoFile($newPhoto);
-                fail($errors[0], 400, ["errors" => $errors]);
+                echo json_encode(["status" => "error", "message" => $errors[0], "errors" => $errors]);
+                exit;
             }
             if (!$set) {
-                fail("Nothing to change.");
+                echo json_encode(["status" => "error", "message" => "Nothing to change."]);
+                exit;
             }
 
             $sql    = "UPDATE reports SET " . implode(", ", array_column($set, 0)) . " WHERE id = ?";
@@ -342,60 +396,68 @@
                       . notifySummary($notified);
             }
 
-            respond([
+            echo json_encode([
                 "status"  => "success",
                 "message" => $text,
                 "report"  => reportOut(fetchReport($conn, $id))
             ]);
+            exit;
         }
 
         if ($action === 'notify') {
 
-            requireAdmin();
-            $id  = reportId(input('id'));
+            requireAdmin($conn);
+            $id  = reportId($id);
             $row = fetchReport($conn, $id);
 
             if (!$row) {
-                fail("That report no longer exists.", 404);
+                echo json_encode(["status" => "error", "message" => "That report no longer exists."]);
+                exit;
             }
             if (!reportIsAlerting($row)) {
-                fail("Only open verified reports send notices.");
+                echo json_encode(["status" => "error", "message" => "Only open verified reports send notices."]);
+                exit;
             }
 
             $notified = notifyAffected($conn, $id, null, true);
             logReport($conn, $id, $row['title'], 'notified', null, (string) $notified, $me['name'], $me['key']);
 
-            respond([
+            echo json_encode([
                 "status"   => "success",
                 "message"  => $notified > 0 ? "Notice sent." . notifySummary($notified) : "No resident has a home inside this area.",
                 "notified" => $notified
             ]);
+            exit;
         }
 
         if ($action === 'email_verified') {
 
-            requireAdmin();
-            $id  = reportId(input('id'));
+            requireAdmin($conn);
+            $id  = reportId($id);
             $row = fetchReport($conn, $id);
 
             if (!$row) {
-                fail("That report no longer exists.", 404);
+                echo json_encode(["status" => "error", "message" => "That report no longer exists."]);
+                exit;
             }
             if (!reportIsAlerting($row)) {
-                fail("Only open, verified reports send emails.");
+                echo json_encode(["status" => "error", "message" => "Only open, verified reports send emails."]);
+                exit;
             }
 
             $sent = notifyAffected($conn, $id, null, true);
             logReport($conn, $id, $row['title'], 'notified', null, (string) $sent, $me['name'], $me['key']);
 
-            respond([
+            echo json_encode([
                 "status"  => "success",
                 "message" => $sent > 0 ? "Emails sent." . notifySummary($sent) : "No resident has a home inside this area.",
                 "emailed" => $sent
             ]);
+            exit;
         }
 
-        fail("Unknown action.");
+        echo json_encode(["status" => "error", "message" => "Unknown action."]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "reports.php");

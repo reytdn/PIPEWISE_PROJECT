@@ -1,12 +1,9 @@
-// Pin artwork from assets/images/. The pictures are big squares with some empty margin
-// and a different pin size each, so every pin is cropped to its artwork and anchored on its tip.
 window.PipeMarkers = (() => {
   'use strict';
 
   const DIR = 'assets/images/';
   const PIN_H = 48;   // height of a pin on the map, in px
 
-  // file, picture size, then the left, top, right, bottom edge of the pin inside the picture
   const ART = {
     interruption: ['WATERINTERRUPTION.png', 1254, 195,  83, 1058, 1202],
     maintenance:  ['MAINTENANCE.png',       1254, 195,  89, 1060, 1195],
@@ -39,7 +36,6 @@ window.PipeMarkers = (() => {
   return {
     src: (key) => (ART[key] || ART.unverified)[0] ? DIR + (ART[key] || ART.unverified)[0] : '',
 
-    // Leaflet icon for a map pin; cls goes on the element that holds the picture
     divIcon(key, cls) {
       const g = geom(key, PIN_H);
       return L.divIcon({
@@ -51,7 +47,6 @@ window.PipeMarkers = (() => {
       });
     },
 
-    // small cropped pin for map legends
     legend(key, h) {
       const g = geom(key, h || 25);
       return `<span class="legend-pin" style="width:${g.w}px;height:${g.h}px;` +

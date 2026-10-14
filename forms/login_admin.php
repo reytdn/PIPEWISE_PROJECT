@@ -1,7 +1,5 @@
 <?php
 
-    header('Content-Type: application/json; charset=utf-8');
-
     header('Cache-Control: no-store');
 
     session_start();
@@ -11,28 +9,23 @@
     $pass = "";
     $db   = "pipesense";
 
-    function respond($payload, $httpCode = 200)
-    {
-        http_response_code($httpCode);
-        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        respond([
+        echo json_encode([
             "status"  => "error",
             "message" => "Invalid request."
-        ], 405);
+        ]);
+        exit;
     }
 
     $username = isset($_POST['username']) ? trim($_POST['username']) : '';
     $password = isset($_POST['password']) ? $_POST['password'] : '';
 
     if ($username === '' || $password === '') {
-        respond([
+        echo json_encode([
             "status"  => "error",
             "message" => "Enter the administrator username and password."
         ]);
+        exit;
     }
 
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
@@ -86,10 +79,11 @@
 
             usleep(400000);
 
-            respond([
+            echo json_encode([
                 "status"  => "error",
                 "message" => "Incorrect username or password."
             ]);
+            exit;
         }
 
         if ($needsUpgrade) {
@@ -131,7 +125,7 @@
             $_SESSION['pipesense_tokens'] = array_slice($_SESSION['pipesense_tokens'], -20, null, true);
         }
 
-        respond([
+        echo json_encode([
             "status"  => "success",
             "message" => "Login successful.",
             "user"    => [
@@ -143,15 +137,17 @@
                 "token"    => $token
             ]
         ]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
 
         error_log("login_admin.php: " . $e->getMessage());
 
-        respond([
+        echo json_encode([
             "status"  => "error",
             "message" => "Server error. Check that MySQL is running and the database is set up."
-        ], 500);
+        ]);
+        exit;
     }
 
 ?>

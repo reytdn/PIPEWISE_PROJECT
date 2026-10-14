@@ -2,9 +2,29 @@
 
     require __DIR__ . '/common.php';
 
-    try {
+    $host = "localhost";
 
-        $conn    = db();
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+    try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
+    }
+
+    prepareTables($conn);
+
+    try {
         $reports = [];
 
         $result = $conn->query(
@@ -40,15 +60,15 @@
             ];
         }
 
-        // all-time total (resolved reports included) and today's scheduled announcements
         $all   = (int) $conn->query("SELECT COUNT(*) FROM reports WHERE source = 'official' OR verified = 1")->fetch_row()[0];
         $today = (int) $conn->query("SELECT COUNT(*) FROM reports WHERE source = 'official' AND DATE(starts_at) = CURDATE()")->fetch_row()[0];
 
-        respond([
+        echo json_encode([
             "status"  => "success",
             "reports" => $reports,
             "totals"  => ["all" => $all, "scheduledToday" => $today]
         ]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "public_reports.php");

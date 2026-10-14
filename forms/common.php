@@ -1,6 +1,5 @@
 <?php
 
-    header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
 
     session_start();
@@ -10,11 +9,6 @@
     if (is_file(__DIR__ . '/mail_config.php')) {
         require __DIR__ . '/mail_config.php';
     }
-
-    $DB_HOST = "localhost";
-    $DB_USER = "root";
-    $DB_PASS = "";
-    $DB_NAME = "pipesense";
 
     $DEBUG = true;
 
@@ -58,28 +52,10 @@
     const BOX_LNG_MIN = 122.84;
     const BOX_LNG_MAX = 123.04;
 
-    function respond($payload, $httpCode = 200)
-    {
-        http_response_code($httpCode);
-        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-
     function fail($message, $httpCode = 400, $extra = [])
     {
-        respond(array_merge(["status" => "error", "message" => $message], $extra), $httpCode);
-    }
-
-    function input($key, $default = '')
-    {
-        if (isset($_POST[$key])) return trim((string) $_POST[$key]);
-        if (isset($_GET[$key]))  return trim((string) $_GET[$key]);
-        return $default;
-    }
-
-    function hasInput($key)
-    {
-        return isset($_POST[$key]);
+        echo json_encode(array_merge(["status" => "error", "message" => $message], $extra));
+        exit;
     }
 
     function textLen($text)
@@ -104,21 +80,10 @@
         return (int) $m[1];
     }
 
-    function db()
+    function prepareTables($conn)
     {
-        global $DB_HOST, $DB_USER, $DB_PASS, $DB_NAME;
-        static $conn = null;
-
-        if ($conn !== null) return $conn;
-
-        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
-        $conn = new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);
-        $conn->set_charset("utf8mb4");
-
         ensureTables($conn);
         ensureExtras($conn);
-        return $conn;
     }
 
     function ensureTables($conn)
@@ -729,8 +694,6 @@
         return $text;
     }
 
-    // Emails (and notes) the residents whose home is inside a report's area when it is resolved.
-    // Only reports that were verified ever alerted anyone, so only those send a resolved email.
     function notifyResolved($conn, $reportId)
     {
         $stmt = $conn->prepare(
@@ -884,7 +847,8 @@
         if ($DEBUG) {
             $reply["detail"] = $e->getMessage();
         }
-        respond($reply, 500);
+        echo json_encode($reply);
+        exit;
     }
 
     function photoDir()
@@ -967,7 +931,7 @@
         ];
     }
 
-    function actor()
+    function actor($conn)
     {
         $who  = sessionIdentity();
         $role = $who['role'];
@@ -982,7 +946,7 @@
         }
 
         $name = '';
-        $stmt = db()->prepare("SELECT name FROM user_login WHERE id = ?");
+        $stmt = $conn->prepare("SELECT name FROM user_login WHERE id = ?");
         $stmt->bind_param("i", $id);
         $stmt->execute();
         $stmt->bind_result($name);
@@ -992,9 +956,9 @@
         return ["role" => "resident", "id" => $id, "key" => "user-" . $id, "name" => $name ? $name : "Resident"];
     }
 
-    function requireAdmin()
+    function requireAdmin($conn)
     {
-        $me = actor();
+        $me = actor($conn);
         if ($me['role'] !== 'admin') {
             fail("Administrators only.", 403);
         }

@@ -1,0 +1,6 @@
+<div class="notice-item{{#if unread}} is-unread{{/if}}">
+  <button type="button" class="queue-main" data-action="notif-open" data-nid="{{id}}" data-rid="{{reportId}}">
+    <strong>{{message}}</strong>
+    <span>{{ago}}{{#if unread}} &middot; New{{/if}}</span>
+  </button>
+</div>

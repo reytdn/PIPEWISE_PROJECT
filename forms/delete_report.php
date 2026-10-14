@@ -2,15 +2,38 @@
 
     require __DIR__ . '/common.php';
 
+    $host = "localhost";
+
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+    try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
+    }
+
+    prepareTables($conn);
+
+    $id = isset($_POST['id']) ? trim((string) $_POST['id']) : '';
+
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        fail("Invalid request.", 405);
+        echo json_encode(["status" => "error", "message" => "Invalid request."]);
+        exit;
     }
 
     try {
-
-        $conn = db();
-        $me   = actor();
-        $id   = reportId(input('id'));
+        $me   = actor($conn);
+        $id   = reportId($id);
 
         $authorId  = null;
         $delTitle  = '';
@@ -23,7 +46,8 @@
 
         if ($stmt->num_rows === 0) {
             $stmt->close();
-            fail("That report no longer exists.", 404);
+            echo json_encode(["status" => "error", "message" => "That report no longer exists."]);
+            exit;
         }
 
         $stmt->bind_result($authorId, $delTitle, $delStatus);
@@ -31,12 +55,13 @@
         $stmt->close();
 
         if ($me['role'] !== 'admin' && $authorId !== $me['key']) {
-            fail("You can only delete your own reports.", 403);
+            echo json_encode(["status" => "error", "message" => "You can only delete your own reports."]);
+            exit;
         }
 
-        // resolved reports stay in the database for the history and the frequently affected areas
         if ($delStatus === 'resolved') {
-            fail("Resolved reports are kept for the history and cannot be deleted.", 409);
+            echo json_encode(["status" => "error", "message" => "Resolved reports are kept for the history and cannot be deleted."]);
+            exit;
         }
 
         $stmt = $conn->prepare("DELETE FROM notifications WHERE report_id = ?");
@@ -64,10 +89,11 @@
 
         logReport($conn, $id, $delTitle, 'deleted', null, null, $me['name'], $me['key']);
 
-        respond([
+        echo json_encode([
             "status"  => "success",
             "message" => "Report deleted."
         ]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "delete_report.php");

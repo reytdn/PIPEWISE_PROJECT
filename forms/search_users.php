@@ -2,15 +2,36 @@
 
     require __DIR__ . '/common.php';
 
+    $host = "localhost";
+
+    $user = "root";
+
+    $pass = "";
+
+    $db = "pipesense";
+
+    mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
     try {
+        $conn = new mysqli($host, $user, $pass, $db);
+        $conn->set_charset("utf8mb4");
+    } catch (mysqli_sql_exception $e) {
+        die(json_encode([
+            "status"  => "error",
+            "message" => "DB connection failed: " . $e->getMessage()
+        ]));
+    }
 
-        $conn = db();
-        requireAdmin();
+    prepareTables($conn);
 
-        $q = input('q');
+    $q = isset($_POST['q']) ? trim((string) $_POST['q']) : '';
+
+    try {
+        requireAdmin($conn);
 
         if ($q === '') {
-            respond(["status" => "success", "results" => []]);
+            echo json_encode(["status" => "success", "results" => []]);
+            exit;
         }
 
         if (textLen($q) > 60) {
@@ -46,7 +67,8 @@
         }
         $stmt->close();
 
-        respond(["status" => "success", "results" => $results]);
+        echo json_encode(["status" => "success", "results" => $results]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
         dbError($e, "search_users.php");

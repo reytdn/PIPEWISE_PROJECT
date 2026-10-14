@@ -1,7 +1,7 @@
-(() => {
-  'use strict';
+window.__pipesenseLoginReady = true;
 
-  window.__pipesenseLoginReady = true;
+jQuery(document).ready(function () {
+  'use strict';
 
   const ENDPOINTS = {
     user: 'forms/login_user.php',
@@ -15,7 +15,7 @@
 
   const homeFor = (user) => (user && user.role === 'admin' ? HOME_ADMIN : HOME_USER);
 
-  const $ = (sel) => document.querySelector(sel);
+  const qs = (sel) => document.querySelector(sel);
 
   try {
     const saved = sessionStorage.getItem(SESSION_KEY);
@@ -38,17 +38,28 @@
     return Swal.fire({ icon, title, html, confirmButtonText: 'OK' });
   }
 
-  // AJAX call to a PHP file; the PHP answers with JSON
   function post(url, fields) {
     return new Promise((resolve, reject) => {
-      jQuery.ajax({ url, method: 'POST', data: fields, dataType: 'json' })
-        .done(resolve)
-        .fail((xhr) => {
-          if (xhr.responseJSON) return resolve(xhr.responseJSON);
-          if (xhr.status === 404) return reject(new Error(`File not found: ${url}`));
-          if (xhr.status === 0) return reject(new Error('The server did not answer.'));
-          reject(new Error('Unexpected reply from ' + url + ': ' + String(xhr.responseText || '').replace(/<[^>]*>/g, ' ').trim().slice(0, 160)));
-        });
+      $.ajax({
+        url: url,
+        type: 'POST',
+        data: fields,
+        dataType: 'text',
+
+        success: function (response) {
+          try {
+            resolve(JSON.parse(response));
+          } catch (e) {
+            console.error('JSON parse error:', e);
+            reject(new Error('Unexpected reply from ' + url + ': ' + String(response).replace(/<[^>]*>/g, ' ').trim().slice(0, 160)));
+          }
+        },
+
+        error: function (xhr) {
+          if (xhr.status === 404) reject(new Error('File not found: ' + url));
+          else reject(new Error('Error connecting to server'));
+        }
+      });
     });
   }
 
@@ -81,21 +92,20 @@
     }).then(() => location.replace(homeFor(user)));
   }
 
-
-  const forms = { login: $('#residentForm'), signup: $('#registerForm'), admin: $('#adminForm') };
+  const forms = { login: qs('#residentForm'), signup: qs('#registerForm'), admin: qs('#adminForm') };
 
   function show(screen) {
     Object.entries(forms).forEach(([k, el]) => { el.hidden = k !== screen; });
 
     const isAdmin = screen === 'admin';
-    $('#segResident').classList.toggle('is-active', !isAdmin);
-    $('#segAdmin').classList.toggle('is-active', isAdmin);
-    $('#segResident').setAttribute('aria-selected', String(!isAdmin));
-    $('#segAdmin').setAttribute('aria-selected', String(isAdmin));
-    $('#roleSwitch').hidden = screen === 'signup';
+    qs('#segResident').classList.toggle('is-active', !isAdmin);
+    qs('#segAdmin').classList.toggle('is-active', isAdmin);
+    qs('#segResident').setAttribute('aria-selected', String(!isAdmin));
+    qs('#segAdmin').setAttribute('aria-selected', String(isAdmin));
+    qs('#roleSwitch').hidden = screen === 'signup';
 
-    $('#gateTitle').textContent = screen === 'signup' ? 'Create your account' : 'Log in';
-    $('#gateLead').textContent = screen === 'signup'
+    qs('#gateTitle').textContent = screen === 'signup' ? 'Create your account' : 'Log in';
+    qs('#gateLead').textContent = screen === 'signup'
       ? 'Residents can report water service issues and follow them on the map.'
       : 'Choose how you are using PipeSense.';
 
@@ -207,14 +217,14 @@
       '<div class="boot-error" role="alert">SweetAlert2 did not load. Check your internet connection and reload.</div>');
   }
 
-  $('#segResident').addEventListener('click', () => show('login'));
-  $('#segAdmin').addEventListener('click', () => show('admin'));
-  $('#showSignup').addEventListener('click', () => show('signup'));
-  $('#backToLogin').addEventListener('click', () => show('login'));
+  qs('#segResident').addEventListener('click', () => show('login'));
+  qs('#segAdmin').addEventListener('click', () => show('admin'));
+  qs('#showSignup').addEventListener('click', () => show('signup'));
+  qs('#backToLogin').addEventListener('click', () => show('login'));
   forms.login.addEventListener('submit', onUserLogin);
   forms.signup.addEventListener('submit', onSignup);
   forms.admin.addEventListener('submit', onAdminLogin);
   forms.login.elements.username.focus();
 
   if (location.hash === '#signup') show('signup');
-})();
+});

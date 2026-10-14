@@ -1,6 +1,5 @@
 <?php
 
-    header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
 
     $host = "localhost";
@@ -9,13 +8,6 @@
     $db   = "pipesense";
 
     $debug = true;
-
-    function respond($payload, $httpCode = 200)
-    {
-        http_response_code($httpCode);
-        echo json_encode($payload, JSON_UNESCAPED_UNICODE);
-        exit;
-    }
 
     function textLength($text)
     {
@@ -41,7 +33,8 @@
     }
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        respond(["status" => "error", "message" => "Invalid request."], 405);
+        echo json_encode(["status" => "error", "message" => "Invalid request."]);
+        exit;
     }
 
     $username = isset($_POST['username']) ? trim($_POST['username']) : '';
@@ -50,10 +43,11 @@
     $email    = isset($_POST['email'])    ? strtolower(trim($_POST['email'])) : '';
 
     if ($username === '' || $password === '' || $name === '' || $email === '') {
-        respond([
+        echo json_encode([
             "status"  => "error",
             "message" => "Every field is required."
         ]);
+        exit;
     }
 
     $errors = [];
@@ -72,11 +66,12 @@
     }
 
     if ($errors) {
-        respond([
+        echo json_encode([
             "status"  => "error",
             "message" => $errors[0],
             "errors"  => $errors
         ]);
+        exit;
     }
 
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
@@ -136,11 +131,12 @@
 
         if ($errors) {
             $errors = array_values($errors);
-            respond([
+            echo json_encode([
                 "status"  => "error",
                 "message" => implode(" ", $errors),
                 "errors"  => $errors
             ]);
+            exit;
         }
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
@@ -160,18 +156,20 @@
         } catch (mysqli_sql_exception $e) {
 
             if ((int) $e->getCode() === 1062) {
-                respond([
+                echo json_encode([
                     "status"  => "error",
                     "message" => "That username or email address is already registered."
                 ]);
+                exit;
             }
             throw $e;
         }
 
-        respond([
+        echo json_encode([
             "status"  => "success",
             "message" => "Your account has been created. You can now log in."
         ]);
+        exit;
 
     } catch (mysqli_sql_exception $e) {
 
@@ -184,7 +182,8 @@
         if ($debug) {
             $reply["detail"] = $e->getMessage();
         }
-        respond($reply, 500);
+        echo json_encode($reply);
+        exit;
     }
 
 ?>
