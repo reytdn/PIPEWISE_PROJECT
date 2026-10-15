@@ -1,0 +1,428 @@
+<!-- @template admin_dashboard -->
+<div class="insights">
+  <h2>Admin dashboard</h2>
+  <p class="lead">Signed in as {{name}}. Review resident reports and manage announcements.</p>
+
+  {{{stats}}}
+
+  <div class="block">
+    <h3>Pending verification</h3>
+    {{{queueRows}}}
+  </div>
+
+  <div class="block">
+    <h3>Ongoing and upcoming interruptions</h3>
+    {{{liveRows}}}
+  </div>
+
+  <div class="insight-actions">
+    <button type="button" class="btn btn-primary" data-action="announce">Post announcement</button>
+    <button type="button" class="btn" data-action="history">Report history</button>
+    <button type="button" class="btn" data-action="insights">See area statistics</button>
+    <button type="button" class="btn" data-action="export">Download records (CSV)</button>
+  </div>
+</div>
+
+<!-- @template auth_area -->
+{{#if showProfile}}<button type="button" class="chip-avatar-btn" data-auth="profile" aria-label="My profile" title="My profile">{{{avatar}}}</button>{{/if}}
+<div class="user-chip"><strong>{{name}}</strong><span>{{subtitle}}</span></div>
+<button type="button" class="btn btn-ghost-light btn-small" data-auth="logout">Log out</button>
+
+<!-- @template avatar -->
+{{#if src}}<img class="avatar" src="{{src}}" alt="" style="{{px}}">{{else}}<span class="avatar avatar-fallback" style="{{px}}" aria-hidden="true">{{initials}}</span>{{/if}}
+
+<!-- @template cluster_icon -->
+<div class="cluster {{cls}}"><span>{{count}}</span></div>
+
+<!-- @template detail -->
+<div class="detail">
+  <button type="button" class="back" data-action="back">{{backLabel}}</button>
+
+  <div class="detail-head" style="--c:{{color}}">
+    <h2>{{title}}</h2>
+    <div class="pills">{{{pills}}}</div>
+  </div>
+
+  {{#if affectsHome}}<p class="home-alert"><strong>This affects your home.</strong> Your home marker is inside the area this report covers.</p>{{/if}}
+  {{#if photo}}<a class="detail-photo-link" href="{{photo}}" target="_blank" rel="noopener"><img class="detail-photo" src="{{photo}}" alt="Photo attached to this report" loading="lazy"></a>{{/if}}
+  <p class="detail-desc">{{description}}</p>
+
+  <dl class="facts">
+    <dt>Type</dt><dd>{{typeLabel}}</dd>
+    <dt>Barangay</dt><dd>{{area}}</dd>
+    <dt>Coordinates</dt><dd>{{coordinates}}</dd>
+    <dt>Posted by</dt><dd>{{author}}</dd>
+    <dt>Posted</dt><dd>{{posted}}</dd>
+    <dt>Verification</dt><dd>{{verification}}</dd>
+    {{#if own}}<dt>Resolution</dt><dd>{{statusLabel}}</dd>{{/if}}
+    {{#if verified}}<dt>Coverage</dt><dd>{{coverage}}</dd>{{/if}}
+    {{#if showResidents}}<dt>Residents in area</dt><dd>{{residents}}</dd>{{/if}}
+    {{#if resolvedDate}}<dt>Resolved</dt><dd>{{resolvedDate}}</dd>{{/if}}
+    {{#if hasSchedule}}<dt>Schedule</dt><dd>{{startText}} to {{endText}}</dd>{{/if}}
+  </dl>
+
+  {{#if admin}}
+  <div class="admin-box">
+    <h3>Admin controls</h3>
+    <div class="row">
+      <select id="adminStatus" aria-label="Change status">{{{statusOptions}}}</select>
+      <button type="button" class="btn btn-small" data-action="toggle-verify">
+        {{verifyLabel}}
+      </button>
+      {{#if canResend}}<button type="button" class="btn btn-small" data-action="resend-verified">Resend emails</button>{{/if}}
+    </div>
+  </div>
+  {{/if}}
+
+  <div class="actions">
+    <button type="button" class="btn" data-action="focus">Show on map</button>
+    {{#if canResolve}}<button type="button" class="btn" data-action="resolve">Mark as resolved</button>{{/if}}
+    {{#if canReopen}}<button type="button" class="btn" data-action="reopen">Reopen</button>{{/if}}
+    {{#if admin}}<button type="button" class="btn" data-action="history">View history</button>{{/if}}
+    {{#if canRenotify}}<button type="button" class="btn" data-action="renotify">Send notice again</button>{{/if}}
+    {{#if modify}}<button type="button" class="btn" data-action="edit">Edit</button>{{/if}}
+    {{#if canDelete}}<button type="button" class="btn btn-danger" data-action="delete">Delete</button>{{/if}}
+  </div>
+</div>
+
+<!-- @template draft_pin -->
+<div class="draft-pin"></div>
+
+<!-- @template empty_inline -->
+<p class="empty-inline">{{text}}</p>
+
+<!-- @template geo_banner -->
+<strong>{{title}}</strong>
+<span id="geoHint"></span>
+{{#if polygon}}<button type="button" class="btn btn-small" data-geo="undo">Undo point</button>{{/if}}
+<button type="button" class="btn btn-small" data-geo="reset">Reset</button>
+<button type="button" class="btn btn-small btn-primary" data-geo="done" id="geoDone">Use this area</button>
+<button type="button" class="btn btn-small btn-quiet" data-geo="cancel">Cancel</button>
+
+<!-- @template geo_handle -->
+<span></span>
+
+<!-- @template history_log -->
+<div class="result-meta" style="margin:0 0 6px">
+  <span>{{count}} log entr{{plural}}</span>
+  <button type="button" class="link-btn" data-action="export-log">Download log (CSV)</button>
+</div>{{#each rows}}
+<div class="log-row">
+  <button type="button" class="queue-main" data-action="open" data-id="{{reportId}}">
+    <strong>{{title}}</strong>
+    <span>{{text}}</span>
+  </button>
+  <span class="log-when">{{when}}<br>{{actor}}</span>
+</div>{{/each}}{{#if rows}}{{else}}<p class="empty-inline">No log entries match.</p>{{/if}}
+
+<!-- @template history_resolved -->
+<p class="lead" style="margin:0 0 6px">{{count}} resolved report{{plural}}.</p>{{#each rows}}
+<div class="queue-item" style="--c:{{color}}">
+  <button type="button" class="queue-main" data-action="open" data-id="{{id}}">
+    <strong>{{title}}</strong>
+    <span>{{typeLabel}}. {{when}}</span>
+  </button>
+  <div class="pills">{{{pills}}}</div>
+  <div class="queue-actions">
+    <button type="button" class="btn btn-small" data-action="reopen" data-id="{{id}}">Reopen</button>
+    <button type="button" class="btn btn-small" data-action="history" data-id="{{id}}">View log</button>
+  </div>
+</div>{{/each}}{{#if rows}}{{else}}<p class="empty-inline">No resolved reports match.</p>{{/if}}
+
+<!-- @template history_view -->
+<div class="insights">
+  <h2>Report history</h2>
+  <p class="lead">Resolved reports leave the active map but stay stored here, with a log of every change.</p>
+
+  <div class="seg" role="tablist" aria-label="History sections">
+    <button type="button" class="seg-btn{{#if resolvedTab}} is-active{{/if}}" data-action="hist-tab" data-tab="resolved">Resolved reports</button>
+    <button type="button" class="seg-btn{{#if logTab}} is-active{{/if}}" data-action="hist-tab" data-tab="log">Activity log</button>
+  </div>
+
+  <div class="hist-controls">
+    <label class="search"><span class="sr-only">Search history</span>
+      <input type="search" id="hSearch" placeholder="Search by title, area, or person" value="{{q}}" autocomplete="off"></label>
+    <div class="filter-row filter-row-2">
+      <label class="date-field"><span>From</span><input type="date" id="hFrom" value="{{from}}"></label>
+      <label class="date-field"><span>To</span><input type="date" id="hTo" value="{{to}}"></label>
+    </div>
+  </div>
+
+  <div id="histBody"></div>
+</div>
+
+<!-- @template home_banner -->
+<strong>{{title}}</strong>
+<span>Click the map where your home is.</span>
+<button type="button" class="btn btn-small" data-home="locate">Use my location</button>
+{{#if cancellable}}<button type="button" class="btn btn-small btn-quiet" data-home="cancel">Cancel</button>{{/if}}
+
+<!-- @template home_confirm -->
+{{#if moving}}<p style="margin:0 0 6px">Barangay: <b>{{barangay}}</b><br>New spot: {{coords}}<br>About {{dist}} m from your current home.</p>
+<p style="margin:0;font-size:14px;color:#587079">Interruption notices will follow the new location.</p>{{else}}<p style="margin:0">Barangay: <b>{{barangay}}</b><br>{{coords}}</p>{{/if}}
+
+<!-- @template home_icon_fallback -->
+<div style="width:34px;height:34px;border-radius:50%;background:#08768b;border:3px solid #fff;box-shadow:0 2px 6px rgba(16,48,59,.45);display:grid;place-items:center;color:#fff"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z" fill="currentColor"/></svg></div>
+
+<!-- @template insights -->
+<div class="insights">
+  <h2>Water service summary</h2>
+  <p class="lead">Based on all {{total}} records in the system.</p>
+
+  {{{stats}}}
+
+  <div class="block">
+    <h3>Reports by type</h3>
+    {{#each byType}}
+    <div class="bar-row">
+      <span>{{label}}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:{{width}}%;--c:{{color}}"></div></div>
+      <span class="bar-num">{{n}}</span>
+    </div>
+    {{/each}}
+  </div>
+
+  <div class="block">
+    <h3>Reports by status</h3>
+    {{#each byStatus}}
+    <div class="bar-row">
+      <span>{{label}}</span>
+      <div class="bar-track"><div class="bar-fill" style="width:{{width}}%;--c:{{color}}"></div></div>
+      <span class="bar-num">{{n}}</span>
+    </div>
+    {{/each}}
+  </div>
+
+  <div class="insight-actions">
+    <button type="button" class="btn" data-action="export">Download records (CSV)</button>
+  </div>
+</div>
+
+<!-- @template legend -->
+<div class="legend-title">Markers</div>
+{{#each rows}}<div class="legend-item">{{{pin}}}{{label}}</div>{{/each}}
+<div class="legend-sep"></div>
+<div class="legend-item"><span class="legend-swatch dashed"></span>Report area (verified only)</div>
+<div class="legend-sep"></div>
+<div class="legend-title">Grouped reports</div>
+<div class="freq-bar"><span class="f1"></span><span class="f2"></span><span class="f3"></span><span class="f4"></span><span class="f5"></span></div>
+<div class="freq-ends"><span>Fewer</span><span>More</span></div>
+<div class="legend-item" style="margin-top:6px"><span class="cluster-key"></span>Grouped, not yet verified</div>
+{{#if hotOn}}
+<div class="legend-sep"></div>
+<div class="legend-title">Frequently affected</div>
+<div class="heat-bar"></div>
+<div class="freq-ends"><span>2 overlap</span><span>Many</span></div>
+{{/if}}
+
+<!-- @template list_empty -->
+<li class="empty">
+  <h3>{{title}}</h3>
+  <p>{{text}}</p>
+</li>
+
+<!-- @template map_attribution -->
+&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors
+
+<!-- @template notice_item -->
+<div class="notice-item{{#if unread}} is-unread{{/if}}">
+  <button type="button" class="queue-main" data-action="notif-open" data-nid="{{id}}" data-rid="{{reportId}}">
+    <strong>{{message}}</strong>
+    <span>{{ago}}{{#if unread}} &middot; New{{/if}}</span>
+  </button>
+</div>
+
+<!-- @template notice_list -->
+<ul style="text-align:left;margin:0;padding-left:1.2em">{{#each items}}<li>{{message}}</li>{{/each}}</ul>
+
+<!-- @template photo_preview -->
+<img src="{{src}}" alt="{{alt}}">
+
+<!-- @template pills -->
+{{#if showStatus}}<span class="pill pill-status-{{status}}">{{statusLabel}}</span>{{/if}}{{#if verified}}<span class="pill pill-verified"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.500 6.300l2.400 2.400L9.500 3.600" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Verified</span>{{else}}<span class="pill pill-unverified">Unverified</span>{{/if}}{{#if official}}<span class="pill pill-official">Official announcement</span>{{/if}}{{#if mine}}<span class="pill pill-mine">Yours</span>{{/if}}{{#if affects}}<span class="pill pill-affects">Affects your home</span>{{/if}}
+
+<!-- @template popup -->
+{{#if photo}}<img class="popup-photo" src="{{photo}}" alt="Photo attached to this report" loading="lazy">{{/if}}<div class="popup-title">{{title}}</div><div class="popup-sub">{{typeLabel}}, {{statusLabel}}</div>{{#if desc}}<p class="popup-desc">{{desc}}</p>{{/if}}
+
+<!-- @template profile -->
+<div class="insights profile">
+  <h2>My profile</h2>
+  <p class="lead">Update your picture and account details.</p>
+
+  <div class="profile-photo">
+    {{{avatar}}}
+    <div class="profile-photo-actions">
+      <input type="file" id="pAvatarInput" accept="image/jpeg,image/png,image/webp" hidden>
+      <button type="button" class="btn btn-small" data-profile="pick">{{#if hasAvatar}}Change picture{{else}}Add picture{{/if}}</button>
+      {{#if hasAvatar}}<button type="button" class="btn btn-small btn-quiet btn-danger" data-profile="avatar-remove">Remove</button>{{/if}}
+      <small>JPG, PNG or WebP, under 2 MB.</small>
+    </div>
+  </div>
+
+  <form class="form block" id="pForm" novalidate>
+    <h3>Account details</h3>
+    <label class="field"><span>Full name</span>
+      <input type="text" value="{{name}}" disabled>
+    </label>
+    <label class="field"><span>Username</span>
+      <input type="text" id="pUsername" value="{{username}}" maxlength="30" autocomplete="username">
+      <small>3 to 30 letters, numbers, dots, dashes or underscores.</small>
+    </label>
+    <label class="field"><span>Email (Gmail)</span>
+      <input type="text" id="pEmail" value="{{email}}" maxlength="100" autocomplete="email" inputmode="email">
+      <small>Password codes and water notices are sent here.</small>
+    </label>
+    <p class="form-error" id="pError" role="alert" hidden></p>
+    <div><button type="submit" class="btn btn-primary" id="pSave">Save changes</button></div>
+  </form>
+
+  <div class="block" id="pwBlock">
+    <h3>Password</h3>
+    <div id="pwStart">
+      <p class="lead" style="margin:0 0 10px">To change your password, we email a 6-digit code to {{maskedEmail}} from pipesenseorganization@gmail.com.</p>
+      <button type="button" class="btn" data-profile="otp-send" id="pwSendBtn">Send me a code</button>
+    </div>
+    <form class="form" id="pwForm" hidden novalidate>
+      <p class="dialog-note" id="pwNote" role="status"></p>
+      <label class="field"><span>6-digit code</span>
+        <input type="text" id="pwCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
+      </label>
+      <label class="field"><span>New password</span>
+        <input type="password" id="pwNew" autocomplete="new-password" maxlength="200">
+        <small>At least 8 characters.</small>
+      </label>
+      <label class="field"><span>Confirm new password</span>
+        <input type="password" id="pwConfirm" autocomplete="new-password" maxlength="200">
+      </label>
+      <p class="form-error" id="pwError" role="alert" hidden></p>
+      <div class="insight-actions">
+        <button type="submit" class="btn btn-primary" id="pwSubmit">Change password</button>
+        <button type="button" class="btn" data-profile="otp-send" id="pwResend">Resend code</button>
+        <button type="button" class="btn btn-quiet" data-profile="otp-cancel">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- @template profile_error -->
+<p class="form-error profile-load-error" role="alert">{{message}}</p>
+
+<!-- @template queue_actions_live -->
+<button type="button" class="btn btn-small" data-action="resolve" data-id="{{id}}">Mark as resolved</button>
+<button type="button" class="btn btn-small" data-action="edit" data-id="{{id}}">Edit</button>
+
+<!-- @template queue_actions_mine -->
+<button type="button" class="btn btn-small" data-action="edit" data-id="{{id}}">Edit</button>
+{{#if canDelete}}<button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="{{id}}">Delete</button>{{/if}}
+
+<!-- @template queue_actions_pending -->
+<button type="button" class="btn btn-small btn-primary" data-action="verify" data-id="{{id}}">Verify</button>
+<button type="button" class="btn btn-small btn-danger" data-action="delete" data-id="{{id}}">Remove</button>
+
+<!-- @template queue_item -->
+<div class="queue-item" style="--c:{{color}}">
+  <button type="button" class="queue-main" data-action="open" data-id="{{id}}">
+    <strong>{{title}}</strong>
+    <span>{{typeLabel}}, {{ago}}</span>
+  </button>
+  <div class="pills">{{{pills}}}</div>
+  <div class="queue-actions">{{{actions}}}</div>
+</div>
+
+<!-- @template report_card -->
+<li>
+  <button type="button" class="report-card{{#if selected}} is-selected{{/if}}"
+          data-id="{{id}}" style="--c:{{color}}">
+    <h3>{{title}}</h3>
+    <div class="where">{{typeLabel}} &middot; {{date}}</div>
+    <div class="pills">
+      {{{pills}}}
+      <span class="time-ago">{{ago}}</span>
+    </div>
+  </button>
+</li>
+
+<!-- @template report_log_dialog -->
+<p style="margin:0 0 10px;font-weight:600">{{title}}</p>
+<ul style="text-align:left;margin:0;padding-left:1.1em;max-height:320px;overflow:auto">{{#if entries}}{{#each entries}}<li style="margin:0 0 8px"><b>{{text}}</b><br>
+<span style="font-size:13px;color:#587079">{{when}} by {{actor}}</span></li>{{/each}}{{else}}<li>No changes were recorded for this report yet.</li>{{/if}}</ul>
+
+<!-- @template resident_dashboard -->
+<div class="insights">
+  <h2>Hello, {{firstName}}</h2>
+  <p class="lead">Signed in as {{email}}. Here is what is happening with water service.</p>
+
+  {{{stats}}}
+
+  <div class="block">
+    <h3>Notifications for my home {{#if unread}}<span class="badge">{{unread}} new</span>{{/if}}</h3>
+    {{{noteRows}}}
+    {{#if unread}}<p style="margin:10px 0 0"><button type="button" class="link-btn" data-action="notif-read-all">Mark all as read</button></p>{{/if}}
+  </div>
+
+  <div class="block">
+    <h3>Quick access</h3>
+    <div class="insight-actions">
+      <button type="button" class="btn" data-action="my-reports">My reports ({{mineCount}})</button>
+      <button type="button" class="btn" data-action="all-reports">All reports</button>
+      <button type="button" class="btn" data-action="map">Open map</button>
+      <button type="button" class="btn btn-primary" data-action="new">Report an issue</button>
+    </div>
+  </div>
+
+  <div class="block">
+    <h3>Current announcements</h3>
+    {{{advisoryRows}}}
+  </div>
+
+  <div class="block">
+    <h3>My latest reports</h3>
+    <p class="lead" style="margin:0 0 6px">{{verified}} verified, {{resolved}} resolved.</p>
+    {{{mineRows}}}
+    {{#if moreMine}}<p style="margin:10px 0 0"><button type="button" class="link-btn" data-action="my-reports">See all {{mineCount}} of my reports</button></p>{{/if}}
+  </div>
+
+  <div class="insight-actions">
+    <button type="button" class="btn" data-action="change-home">Change my home</button>
+    <button type="button" class="btn" data-action="insights">See area statistics</button>
+  </div>
+</div>
+
+<!-- @template select_options -->
+{{#each options}}<option value="{{value}}"{{#if selected}} selected{{/if}}>{{label}}</option>{{/each}}
+
+<!-- @template stat_strip -->
+<div class="stat-strip{{#if wide}} stat-strip-3{{/if}}">{{#each stats}}<div class="stat"><b>{{n}}</b><span>{{label}}</span></div>{{/each}}</div>
+
+<!-- @template suggest_empty -->
+<li class="suggest-empty">No residents found.</li>
+
+<!-- @template suggest_items -->
+{{#each rows}}<li role="option" data-i="{{i}}" class="{{cls}}">
+  <strong>{{name}}</strong>
+  <span>@{{username}} &middot; {{address}}</span>
+  {{#if hasHome}}{{else}}<em>No home set yet</em>{{/if}}
+</li>{{/each}}
+
+<!-- @template user_popup -->
+<div class="popup-title">{{name}}</div><div class="popup-sub">@{{username}}<br>{{address}}</div>
+
+<!-- @template user_search -->
+<label class="sr-only" for="userSearch">Search residents</label>
+<div class="search-field">
+  <svg class="search-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+    <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"/>
+    <path d="M15.5 15.5 21 21" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+  </svg>
+  <input type="search" id="userSearch" placeholder="Search a resident or barangay" autocomplete="off"
+         role="combobox" aria-expanded="false" aria-controls="userSuggest" aria-autocomplete="list">
+</div>
+<ul class="suggest" id="userSuggest" role="listbox" hidden></ul>
+
+<!-- @template welcome_admin -->
+<p style="margin:0">{{text}}</p>
+
+<!-- @template welcome_resident -->
+{{#if hasHome}}<p style="margin:0 0 8px">Your home is marked on the map.</p>
+<p style="margin:0">{{coverText}}</p>
+{{#if unread}}<p style="margin:8px 0 0"><b>{{unread}}</b> interruption notice{{plural}} cover{{verb}} your home. Check your dashboard.</p>{{/if}}{{else}}<p style="margin:0">You have not set your home on the map yet.</p>{{/if}}

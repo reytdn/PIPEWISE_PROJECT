@@ -856,6 +856,7 @@ function pillsHTML(r, opts = {}) {
       description: r.desc ? r.desc : 'No details were added to this report.',
       typeLabel: t.label,
       coordinates: `${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}`,
+      area: r.area || 'Not set',
       author: r.author || 'Anonymous resident',
       posted: `${fmtDate.format(r.createdAt)} (${ago(r.createdAt)})`,
       verification: r.verified ? 'Verified by an administrator' : 'Not yet verified',
@@ -1551,6 +1552,12 @@ function pillsHTML(r, opts = {}) {
     qs('#rTitleInput').value = report?.title || '';
     qs('#rDesc').value = report?.desc || '';
 
+    if (qs('#rArea')) {
+      qs('#rAreaField').hidden = false;
+      const opts = [['', 'Choose a barangay'], ...AREAS.map((a) => [a.name, a.name])];
+      fillSelect(qs('#rArea'), opts, report?.area || '');
+    }
+
     const statusKeys = admin ? Object.keys(STATUSES) : ['reported', 'ongoing', 'resolved'];
     fillSelect(qs('#rStatus'), statusKeys.map((k) => [k, STATUSES[k]]),
       report?.status || (official ? 'scheduled' : 'reported'));
@@ -1628,6 +1635,8 @@ function pillsHTML(r, opts = {}) {
       return showError('reportError', 'The end time is before the start time. Check the schedule.');
     }
 
+    if (!qs('#rArea').value) return showError('reportError', 'Choose the barangay this report is for.');
+
     const radius = admin ? Number(qs('#rRadius').value) : 0;
     const kind = admin ? qs('#rShape').value : 'circle';
     if (admin) {
@@ -1653,6 +1662,7 @@ function pillsHTML(r, opts = {}) {
     else if (editing && qs('#rPhotoRemove').checked) payload.removePhoto = '1';
     if (editing) payload.id = state.editingId;
     if (!qs('#rStatusField').hidden) payload.status = qs('#rStatus').value;
+    payload.area = qs('#rArea').value;
     if (admin) {
       payload.radius = String(radius);
       payload.geofence = kind !== 'circle' && state.draftGeo ? JSON.stringify(state.draftGeo) : '';
@@ -2661,6 +2671,7 @@ geoBanner.innerHTML = Tpl.render('geo_banner', { title: title, polygon: edit.kin
     return {
       type: qs('#rType').value, title: qs('#rTitleInput').value,
       desc: qs('#rDesc').value, status: qs('#rStatus').value,
+      area: qs('#rArea') ? qs('#rArea').value : '',
       official: qs('#rOfficial').checked, starts: qs('#rStarts').value, ends: qs('#rEnds').value,
       radius: qs('#rRadius') ? qs('#rRadius').value : '',
       range: qs('#rRange') ? qs('#rRange').value : '',
@@ -2674,6 +2685,7 @@ geoBanner.innerHTML = Tpl.render('geo_banner', { title: title, polygon: edit.kin
     qs('#rTitleInput').value = f.title;
     qs('#rDesc').value = f.desc;
     qs('#rStatus').value = f.status;
+    if (qs('#rArea')) qs('#rArea').value = f.area;
     qs('#rOfficial').checked = f.official;
     qs('#rStarts').value = f.starts;
     qs('#rEnds').value = f.ends;

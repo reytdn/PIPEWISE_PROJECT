@@ -39,7 +39,7 @@ CREATE TABLE `admin_login` (
 --
 
 INSERT INTO `admin_login` (`id`, `username`, `password`, `email`) VALUES
-(1, 'pipesenseproject123', 'P@ssw0rd0_123!', 'pipesenseorganization@gmail.com');
+(1, 'pipesenseproject123', 'password123', 'pipesenseorganization@gmail.com');
 
 -- --------------------------------------------------------
 
@@ -145,6 +145,15 @@ CREATE TABLE `user_homes` (
   `barangay` varchar(60) NOT NULL DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+--
+-- Dumping data for table `user_homes`
+--
+
+INSERT INTO `user_homes` (`user_id`, `lat`, `lng`, `barangay`) VALUES
+(1, 10.629713, 122.974412, 'Mansilingan'),
+(2, 10.599185, 122.919803, 'Sum-ag'),
+(3, 10.661863, 122.951689, 'Barangay 33');
+
 -- --------------------------------------------------------
 
 --
@@ -166,9 +175,9 @@ CREATE TABLE `user_login` (
 --
 
 INSERT INTO `user_login` (`id`, `username`, `password`, `name`, `address`, `email`, `avatar`) VALUES
-(1, 'USERNAME_1', 'PASSWORD_HASH_1', 'FULL_NAME_1', 'ADDRESS_1', 'EMAIL_1', NULL),
-(2, 'USERNAME_2', 'PASSWORD_HASH_2', 'FULL_NAME_2', 'ADDRESS_2', 'EMAIL_2', NULL),
-(3, 'USERNAME_3', 'PASSWORD_HASH_3', 'FULL_NAME_3', 'ADDRESS_3', 'EMAIL_3', NULL);
+(1, 'ReyLenin7788', '$2y$10$Mqh6Hk49rGjVju6iPtBEoeVQizmjo/4JPE2XlBNedYOd5t6x3Ffp2', 'Reynaldo III V. Tuden', '', 'reynaldotuden88@gmail.com', NULL),
+(2, 'plehzhz', '$2y$10$ldra.HlV6RvVxMj/dupjse3Dy1XOdtr21kr1csuVs5rw2ONT/j75G', 'Rioben Smets', '', 'smetsrioben07@gmail.com', NULL),
+(3, 'kviii', '$2y$10$VFcuzbyhgTXO9uBGDqw9kuZyvvQtywaX97U8LopRsQIR2G6HB.ZD2', 'Kate Torrejon', '', 'katetorrejon@gmail.com', NULL);
 
 --
 -- Indexes for dumped tables

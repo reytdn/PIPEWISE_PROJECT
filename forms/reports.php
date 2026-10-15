@@ -33,6 +33,7 @@
     $id          = isset($_POST['id']) ? trim((string) $_POST['id']) : '';
     $removePhoto = isset($_POST['removePhoto']) ? trim((string) $_POST['removePhoto']) : '';
     $verified    = isset($_POST['verified']) ? trim((string) $_POST['verified']) : '';
+    $area        = isset($_POST['area']) ? trim((string) $_POST['area']) : '';
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         echo json_encode(["status" => "error", "message" => "Invalid request."]);
@@ -40,7 +41,7 @@
     }
 
     const REPORT_SELECT =
-        "SELECT id, type, status, title, description, lat, lng, source, verified,
+        "SELECT id, type, status, title, description, area, lat, lng, source, verified,
                 author_id, author, radius_m, geofence, photo,
                 UNIX_TIMESTAMP(created_at) * 1000 AS created_ms,
                 UNIX_TIMESTAMP(resolved_at) * 1000 AS resolved_ms,
@@ -56,6 +57,7 @@
             "status"    => $r['status'],
             "title"     => $r['title'],
             "desc"      => $r['description'] !== null ? $r['description'] : '',
+            "area"      => (string) $r['area'],
             "lat"       => (float) $r['lat'],
             "lng"       => (float) $r['lng'],
             "source"    => $r['source'],
@@ -173,6 +175,7 @@
             if (textLen($title) > 90)                   $errors[] = "The title is too long (90 characters at most).";
             if (textLen($desc) > 500)                   $errors[] = "The details are too long (500 characters at most).";
             if (!validPoint($lat, $lng))                $errors[] = "The pinned location must be inside Bacolod City.";
+            if (!in_array($area, BARANGAYS, true)) $errors[] = "Choose the barangay this report is for.";
 
             $status   = 'reported';
             $official = false;
@@ -218,12 +221,12 @@
                 "INSERT INTO reports
                     (type, status, title, description, area, lat, lng,
                      source, verified, author_id, author, starts_at, ends_at, radius_m, geofence, photo)
-                 VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, ?, ?)"
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?, ?, ?)"
             );
 
             $stmt->bind_param(
-                "ssssddsissiiiss",
-                $type, $status, $title, $desc, $latF, $lngF,
+                "sssssddsissiiiss",
+                $type, $status, $title, $desc, $area, $latF, $lngF,
                 $source, $verified, $authorKey, $authorName, $startsAt, $endsAt, $radius, $geofence, $photo
             );
             $stmt->execute();
@@ -278,6 +281,11 @@
                 $v = $desc;
                 if (textLen($v) > 500) { $errors[] = "The details are too long (500 characters at most)."; }
                 else { $set[] = ["description = ?", "s", $v]; $contentChanged = true; }
+            }
+
+            if (isset($_POST['area'])) {
+                if (!in_array($area, BARANGAYS, true)) { $errors[] = "Choose the barangay this report is for."; }
+                else { $set[] = ["area = ?", "s", $area]; $contentChanged = true; }
             }
 
             if (isset($_POST['lat']) || isset($_POST['lng'])) {

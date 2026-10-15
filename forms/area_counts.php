@@ -30,14 +30,13 @@
         }
 
         $stmt = $conn->prepare(
-            "SELECT area, COUNT(*) AS report_count
+            "SELECT COALESCE(NULLIF(TRIM(area), ''), 'Unspecified') AS area_name, COUNT(*) AS report_count
              FROM reports
              WHERE (source = 'official' OR verified = 1)
-               AND area <> ''
                AND COALESCE(starts_at, created_at) < ?
                AND COALESCE(ends_at, starts_at, created_at) >= ?
-             GROUP BY area
-             ORDER BY report_count DESC, area ASC
+             GROUP BY area_name
+             ORDER BY report_count DESC, area_name ASC
              LIMIT 10"
         );
         $stmt->bind_param("ss", $to, $from);
@@ -47,7 +46,7 @@
         $areas = [];
         while ($row = $result->fetch_assoc()) {
             $areas[] = [
-                "area"         => $row['area'],
+                "area"         => $row['area_name'],
                 "report_count" => (int) $row['report_count']
             ];
         }

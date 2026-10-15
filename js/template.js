@@ -1,33 +1,45 @@
 window.Tpl = (function () {
   'use strict';
 
-  const DIR = 'templates/';
+  const FILE = 'templates.html';
   const files = {};
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 
+  // Loads the single templates.html file once and splits it into named
+  // templates using the "<!-- @template name -->" marker lines.
   function load(names, onDone, onFail) {
-    let failed = '';
-
-    const requests = names.map((name) => $.ajax({
-      url: DIR + name + '.html',
+    $.ajax({
+      url: FILE,
       type: 'GET',
       dataType: 'text',
       cache: true,
 
       success: function (response) {
-        files[name] = response.replace(/\r?\n$/, '');
+        const marker = /^<!-- @template ([\w-]+) -->\r?\n/gm;
+        const hits = [];
+        let m;
+        while ((m = marker.exec(response)) !== null) {
+          hits.push({ name: m[1], start: marker.lastIndex, at: m.index });
+        }
+        hits.forEach((h, i) => {
+          const stop = i + 1 < hits.length ? hits[i + 1].at : response.length;
+          files[h.name] = response.slice(h.start, stop).replace(/(\r?\n)+$/, '');
+        });
+
+        const missing = (names || []).filter((n) => !(n in files));
+        if (missing.length) {
+          onFail(new Error('Missing template(s) in ' + FILE + ': ' + missing.join(', ')));
+          return;
+        }
+        onDone();
       },
 
       error: function () {
-        if (!failed) failed = DIR + name + '.html';
+        onFail(new Error('Could not load ' + FILE));
       }
-    }));
-
-    $.when.apply($, requests).done(onDone).fail(function () {
-      onFail(new Error('Could not load ' + failed));
     });
   }
 
