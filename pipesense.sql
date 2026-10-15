@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Oct 15, 2026 at 03:36 AM
+-- Generation Time: Oct 14, 2026 at 02:50 AM
 -- Server version: 8.4.3
 -- PHP Version: 8.3.30
 
@@ -162,6 +162,15 @@ CREATE TABLE `user_login` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
+-- Dumping data for table `user_login`
+--
+
+INSERT INTO `user_login` (`id`, `username`, `password`, `name`, `address`, `email`, `avatar`) VALUES
+(1, 'USERNAME_1', 'PASSWORD_HASH_1', 'FULL_NAME_1', 'ADDRESS_1', 'EMAIL_1', NULL),
+(2, 'USERNAME_2', 'PASSWORD_HASH_2', 'FULL_NAME_2', 'ADDRESS_2', 'EMAIL_2', NULL),
+(3, 'USERNAME_3', 'PASSWORD_HASH_3', 'FULL_NAME_3', 'ADDRESS_3', 'EMAIL_3', NULL);
+
+--
 -- Indexes for dumped tables
 --
 
@@ -235,31 +244,31 @@ ALTER TABLE `admin_login`
 -- AUTO_INCREMENT for table `notifications`
 --
 ALTER TABLE `notifications`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
 
 --
 -- AUTO_INCREMENT for table `reports`
 --
 ALTER TABLE `reports`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
 
 --
 -- AUTO_INCREMENT for table `report_emails`
 --
 ALTER TABLE `report_emails`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
 
 --
 -- AUTO_INCREMENT for table `report_log`
 --
 ALTER TABLE `report_log`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
 
 --
 -- AUTO_INCREMENT for table `user_login`
 --
 ALTER TABLE `user_login`
-  MODIFY `id` int NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

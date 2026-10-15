@@ -1136,23 +1136,6 @@ function pillsHTML(r, opts = {}) {
     if (a === 'announce' && isAdmin()) return beginNewReport({ official: true });
     if (a === 'insights') return showView('insights');
     if (a === 'history' && isAdmin()) return showView('history');
-    if (a === 'test-mail' && isAdmin()) {
-      const res = await Swal.fire({
-        title: 'Send a test email',
-        text: 'Checks that residents can receive water service emails.',
-        input: 'email',
-        inputPlaceholder: 'you@gmail.com',
-        showCancelButton: true,
-        confirmButtonText: 'Send'
-      });
-      if (!res.isConfirmed || !res.value) return;
-      try {
-        const data = await api('forms/test_mail.php', { to: res.value });
-        return Swal.fire({ icon: 'success', title: 'Email sent', text: data.message, confirmButtonText: 'OK' });
-      } catch (err) {
-        return Swal.fire({ icon: 'error', title: 'Email not sent', text: errMsg(err), confirmButtonText: 'OK' });
-      }
-    }
     if (a === 'export') return exportCSV();
   }
 
@@ -1377,7 +1360,7 @@ function pillsHTML(r, opts = {}) {
 
     qs('#btnAnnounce').hidden = !admin;
     const unread = admin ? 0 : unreadNotes().length;
-    qs('#tabDashboard').textContent = admin ? 'Admin dashboard' : (unread ? `My dashboard (${unread})` : 'My dashboard');
+    qs('#tabDashboard').textContent = admin ? 'Dashboard' : (unread ? `Dashboard (${unread})` : 'Dashboard');
 
     qs('#authArea').innerHTML = u ? Tpl.render('auth_area', {
       showProfile: !admin,
