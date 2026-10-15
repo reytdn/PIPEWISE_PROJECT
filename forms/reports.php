@@ -175,7 +175,7 @@
             if (textLen($title) > 90)                   $errors[] = "The title is too long (90 characters at most).";
             if (textLen($desc) > 500)                   $errors[] = "The details are too long (500 characters at most).";
             if (!validPoint($lat, $lng))                $errors[] = "The pinned location must be inside Bacolod City.";
-            if ($admin && !in_array($area, BARANGAYS, true)) $errors[] = "Choose the barangay this report is for.";
+            if (!in_array($area, BARANGAYS, true)) $errors[] = "Choose the barangay this report is for.";
 
             $status   = 'reported';
             $official = false;
@@ -216,17 +216,6 @@
             $verified   = $official ? 1 : 0;
             $authorKey  = $me['key'];
             $authorName = $me['name'];
-
-            // Residents do not pick a barangay; use the one saved with their home marker.
-            if (!$admin) {
-                $area = '';
-                $hs = $conn->prepare("SELECT barangay FROM user_homes WHERE user_id = ?");
-                $hs->bind_param("i", $me['id']);
-                $hs->execute();
-                $hs->bind_result($homeArea);
-                if ($hs->fetch() && in_array($homeArea, BARANGAYS, true)) $area = $homeArea;
-                $hs->close();
-            }
 
             $stmt = $conn->prepare(
                 "INSERT INTO reports
@@ -294,9 +283,9 @@
                 else { $set[] = ["description = ?", "s", $v]; $contentChanged = true; }
             }
 
-            if ($admin && isset($_POST['area'])) {
+            if (isset($_POST['area'])) {
                 if (!in_array($area, BARANGAYS, true)) { $errors[] = "Choose the barangay this report is for."; }
-                else { $set[] = ["area = ?", "s", $area]; }
+                else { $set[] = ["area = ?", "s", $area]; $contentChanged = true; }
             }
 
             if (isset($_POST['lat']) || isset($_POST['lng'])) {

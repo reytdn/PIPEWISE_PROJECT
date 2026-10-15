@@ -1553,7 +1553,7 @@ function pillsHTML(r, opts = {}) {
     qs('#rDesc').value = report?.desc || '';
 
     if (qs('#rArea')) {
-      qs('#rAreaField').hidden = !admin;
+      qs('#rAreaField').hidden = false;
       const opts = [['', 'Choose a barangay'], ...AREAS.map((a) => [a.name, a.name])];
       fillSelect(qs('#rArea'), opts, report?.area || '');
     }
@@ -1635,7 +1635,7 @@ function pillsHTML(r, opts = {}) {
       return showError('reportError', 'The end time is before the start time. Check the schedule.');
     }
 
-    if (admin && !qs('#rArea').value) return showError('reportError', 'Choose the barangay this report is for.');
+    if (!qs('#rArea').value) return showError('reportError', 'Choose the barangay this report is for.');
 
     const radius = admin ? Number(qs('#rRadius').value) : 0;
     const kind = admin ? qs('#rShape').value : 'circle';
@@ -1662,8 +1662,8 @@ function pillsHTML(r, opts = {}) {
     else if (editing && qs('#rPhotoRemove').checked) payload.removePhoto = '1';
     if (editing) payload.id = state.editingId;
     if (!qs('#rStatusField').hidden) payload.status = qs('#rStatus').value;
+    payload.area = qs('#rArea').value;
     if (admin) {
-      payload.area = qs('#rArea').value;
       payload.radius = String(radius);
       payload.geofence = kind !== 'circle' && state.draftGeo ? JSON.stringify(state.draftGeo) : '';
       if (state.verifying) payload.verified = '1';
